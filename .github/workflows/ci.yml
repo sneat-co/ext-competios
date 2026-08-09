@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      # No private-module authentication step, deliberately: this module's
+      # whole purpose is that it needs none. If a dependency ever arrives that
+      # requires a token, this job fails — which is the intended alarm, not an
+      # oversight to work around by adding credentials here.
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+      - name: Test
+        working-directory: backend
+        run: go test ./...
+
+  no_dependencies:
+    name: stdlib-only invariant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - name: Reject any non-stdlib dependency
+        working-directory: backend
+        # A `require` block, or a go.sum, means this module stopped being
+        # importable without credentials for someone. That is the one property
+        # it exists to hold.
+        run: |
+          if [ -f go.sum ]; then echo "go.sum present: this module must stay dependency-free"; exit 1; fi
+          if grep -qE '^\s*require' go.mod; then echo "go.mod has a require block: this module must stay dependency-free"; exit 1; fi
+          echo "stdlib-only: ok"
