@@ -70,9 +70,31 @@ func (unsafeVerifier) VerifyOperationGrant(_ context.Context, value contract4com
 	return contract4competios.VerifiedOperationGrant{Claims: value}, nil
 }
 
-// biddingTicTacToeProvider is intentionally a distinct provider implementation:
+// biddingTicTacToeProvider is intentionally an independent implementation:
 // its opaque configuration is a bid policy rather than a Chess rules profile.
-type biddingTicTacToeProvider struct{ referenceProvider }
+type biddingTicTacToeProvider struct {
+	receipts map[contract4competios.CommandID]contract4competios.ExecutionReceipt
+	digests  map[contract4competios.CommandID]contract4competios.PayloadDigest
+}
+
+func (p *biddingTicTacToeProvider) LaunchExecution(_ context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
+	if grant.Claims.Purpose != contract4competios.GrantPurposeContestLaunch || grant.Claims.Audience != "game/execution" || grant.Claims.RawTransportDigest != "sha256:transport" || request.GameID != "bidding-tic-tac-toe" || grant.Claims.ContestID != request.ContestID || grant.Claims.RequestID != request.ID || grant.Claims.CommandID != request.CommandID || contract4competios.ValidateExecutionRequest(request) != nil {
+		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
+	}
+	if p.receipts == nil {
+		p.receipts, p.digests = map[contract4competios.CommandID]contract4competios.ExecutionReceipt{}, map[contract4competios.CommandID]contract4competios.PayloadDigest{}
+	}
+	if receipt, ok := p.receipts[request.CommandID]; ok {
+		if p.digests[request.CommandID] != request.TypedPayloadDigest {
+			return contract4competios.ExecutionReceipt{}, contract4competios.ErrCommandConflict
+		}
+		receipt.Status = contract4competios.ReceiptReplayed
+		return receipt, nil
+	}
+	receipt := contract4competios.ExecutionReceipt{RequestID: request.ID, CommandID: request.CommandID, ProviderID: request.ProviderID, AdapterID: request.AdapterID, ProviderInstanceID: "bid-instance", Status: contract4competios.ReceiptAccepted}
+	p.receipts[request.CommandID], p.digests[request.CommandID] = receipt, request.TypedPayloadDigest
+	return receipt, nil
+}
 
 type countingProvider struct{ calls int }
 
