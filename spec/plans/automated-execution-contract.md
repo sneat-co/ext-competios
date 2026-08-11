@@ -1,10 +1,10 @@
 ---
 format: https://specscore.md/plan-specification
-status: Draft
+status: Approved
 ---
 # Plan: Automated execution contract
 
-**Status:** Draft
+**Status:** Executing
 **Source Feature:** automated-execution-contract
 **Date:** 2026-08-11
 **Owner:** alex
@@ -51,7 +51,7 @@ consumer bumps.
 **Id:** task-1
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:two-unrelated-providers-conform
 **Depends-On:** —
-**Status:** planning
+**Status:** in_progress
 
 Inventory every `LaunchRequest`, `GameLauncher`, start/result and conformance
 consumer in Competios, Chess Raiders and host composition. Record canonical

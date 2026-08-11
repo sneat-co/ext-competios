@@ -11,8 +11,8 @@ a game integrates against.
 
 | Package | Purpose |
 |---|---|
-| [`backend/contract4competios`](backend/contract4competios) | The contract: `LaunchRequest`, `OrderedResult`, `ContestStart`, the `GameLauncher` / `ResultSink` / `ContestStartSink` interfaces, capabilities, projections and drafts. |
-| [`backend/contract4competiostest`](backend/contract4competiostest) | The conformance harness an implementor runs against their own adapter. |
+| [`backend/contract4competios`](backend/contract4competios) | The contract: immutable N-slot execution requests and receipts, lifecycle/result evidence, recorded provenance, terminal replay state, verified operation-grant facts, plus capabilities, projections and drafts. |
+| [`backend/contract4competiostest`](backend/contract4competiostest) | Positive and adversarial execution, event-delivery and grant conformance harnesses an implementor runs against its own adapter. |
 
 ```
 go get github.com/sneat-co/ext-competios/backend
@@ -34,4 +34,6 @@ module exists to remove — so the build fails rather than quietly acquiring one
 ## Relationship to `sneat-co/competios`
 
 The private engine imports this module; never the reverse. Contract changes
-originate here and flow inward.
+originate here and flow inward. The execution boundary carries verified grant
+facts, never raw bearer tokens: OAuth/JWT/JWKS/HTTP implementations remain in
+the owning services.

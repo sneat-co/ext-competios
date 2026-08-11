@@ -1,12 +1,12 @@
 ---
 format: https://specscore.md/feature-specification
-status: Draft
+status: Implementing
 ---
 
 # Feature: Automated execution contract
 
 > [SpecScore.**Studio**](https://specscore.studio): | [Explore](https://specscore.studio/app/github.com/sneat-co/ext-competios/spec/features/automated-execution-contract?op=explore) | [Edit](https://specscore.studio/app/github.com/sneat-co/ext-competios/spec/features/automated-execution-contract?op=edit) | [Ask question](https://specscore.studio/app/github.com/sneat-co/ext-competios/spec/features/automated-execution-contract?op=ask) | [Request change](https://specscore.studio/app/github.com/sneat-co/ext-competios/spec/features/automated-execution-contract?op=request-change) |
-**Status:** Draft
+**Status:** Implementing
 **Source Ideas:** —
 
 ## Summary
