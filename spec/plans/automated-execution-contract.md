@@ -51,7 +51,9 @@ consumer bumps.
 **Id:** task-1
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:two-unrelated-providers-conform
 **Depends-On:** —
-**Status:** in_progress
+**Status:** complete
+**Implemented-by:** 6a2bec3 (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/contract.go, backend/contract4competios/operation_grants.go, backend/contract4competiostest/conformance.go
 
 Inventory every `LaunchRequest`, `GameLauncher`, start/result and conformance
 consumer in Competios, Chess Raiders and host composition. Record canonical
