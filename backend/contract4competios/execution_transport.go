@@ -27,20 +27,27 @@ func CloneExecutionLaunchEnvelope(value ExecutionLaunchEnvelope) ExecutionLaunch
 // It deliberately cannot validate the opaque token, decode the request, or
 // impose a deployment-specific raw-body limit after allocation.
 func ValidateExecutionLaunchEnvelope(value ExecutionLaunchEnvelope) error {
-	if value.AccessToken == "" || value.Method == "" || len(value.Method) > 64 || strings.TrimSpace(value.Method) != value.Method || strings.ContainsAny(value.Method, "\r\n") ||
-		value.Resource == "" || len(value.Resource) > 2048 || strings.ContainsAny(value.Resource, "\r\n") ||
-		value.ContentType == "" || len(value.ContentType) > 256 || strings.TrimSpace(value.ContentType) != value.ContentType || strings.ContainsAny(value.ContentType, "\r\n") ||
-		len(value.RawBody) == 0 {
+	if value.AccessToken == "" {
 		return ErrInvalidGrant
 	}
-	for _, value := range []string{value.Method, value.Resource, value.ContentType} {
+	return validateOpaqueTransportShape(value.Method, value.Resource, value.ContentType, value.RawBody)
+}
+
+func validateOpaqueTransportShape(method, resource, contentType string, rawBody []byte) error {
+	if method == "" || len(method) > 64 || strings.TrimSpace(method) != method || strings.ContainsAny(method, "\r\n") ||
+		resource == "" || len(resource) > 2048 || strings.ContainsAny(resource, "\r\n") ||
+		contentType == "" || len(contentType) > 256 || strings.TrimSpace(contentType) != contentType || strings.ContainsAny(contentType, "\r\n") ||
+		len(rawBody) == 0 {
+		return ErrInvalidGrant
+	}
+	for _, value := range []string{method, resource, contentType} {
 		for _, char := range value {
 			if char < 0x20 || char == 0x7f {
 				return ErrInvalidGrant
 			}
 		}
 	}
-	for _, char := range value.Method {
+	for _, char := range method {
 		if char <= 0x20 || char >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={}", char) {
 			return ErrInvalidGrant
 		}
