@@ -13,6 +13,7 @@ type ClosurePlanID string
 type ArtifactRetentionReceiptID string
 type ArtifactPublicationReceiptID string
 type PublicArtifactReference string
+type SourceObjectID string
 
 const (
 	manifestClosurePlanDigestDomain       = "competios.manifest-closure-plan-request-payload.v1"
@@ -36,7 +37,7 @@ type ManifestClosurePlanRequestPayload struct {
 	ParticipantID          ParticipantID        `json:"participantID"`
 	ParticipantVersionID   ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID       string               `json:"repositoryNodeID"`
-	Commit                 string               `json:"commit"`
+	CommitOID              SourceObjectID       `json:"commitOID"`
 	ManifestPath           string               `json:"manifestPath"`
 	ManifestEntryKind      SourceEntryKind      `json:"manifestEntryKind"`
 	RawManifestBytesDigest ArtifactDigest       `json:"rawManifestBytesDigest"`
@@ -52,7 +53,7 @@ type ManifestClosurePlanRequest struct {
 	ParticipantID          ParticipantID        `json:"participantID"`
 	ParticipantVersionID   ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID       string               `json:"repositoryNodeID"`
-	Commit                 string               `json:"commit"`
+	CommitOID              SourceObjectID       `json:"commitOID"`
 	ManifestPath           string               `json:"manifestPath"`
 	ManifestEntryKind      SourceEntryKind      `json:"manifestEntryKind"`
 	RawManifestBytesDigest ArtifactDigest       `json:"rawManifestBytesDigest"`
@@ -68,7 +69,7 @@ func NewManifestClosurePlanRequest(payload ManifestClosurePlanRequestPayload) (M
 	request := ManifestClosurePlanRequest{
 		ProviderID: payload.ProviderID, AdapterID: payload.AdapterID, CommandID: payload.CommandID,
 		ParticipantID: payload.ParticipantID, ParticipantVersionID: payload.ParticipantVersionID,
-		RepositoryNodeID: payload.RepositoryNodeID, Commit: payload.Commit, ManifestPath: payload.ManifestPath,
+		RepositoryNodeID: payload.RepositoryNodeID, CommitOID: payload.CommitOID, ManifestPath: payload.ManifestPath,
 		ManifestEntryKind:      payload.ManifestEntryKind,
 		RawManifestBytesDigest: payload.RawManifestBytesDigest, ManifestByteLimit: payload.ManifestByteLimit,
 		TypedPayloadDigest: digest,
@@ -83,7 +84,7 @@ func (r ManifestClosurePlanRequest) Payload() ManifestClosurePlanRequestPayload 
 	return ManifestClosurePlanRequestPayload{
 		ProviderID: r.ProviderID, AdapterID: r.AdapterID, CommandID: r.CommandID,
 		ParticipantID: r.ParticipantID, ParticipantVersionID: r.ParticipantVersionID,
-		RepositoryNodeID: r.RepositoryNodeID, Commit: r.Commit, ManifestPath: r.ManifestPath,
+		RepositoryNodeID: r.RepositoryNodeID, CommitOID: r.CommitOID, ManifestPath: r.ManifestPath,
 		ManifestEntryKind:      r.ManifestEntryKind,
 		RawManifestBytesDigest: r.RawManifestBytesDigest, ManifestByteLimit: r.ManifestByteLimit,
 	}
@@ -94,7 +95,7 @@ func DigestManifestClosurePlanRequestPayload(payload ManifestClosurePlanRequestP
 }
 
 func ValidateManifestClosurePlanRequest(value ManifestClosurePlanRequest) error {
-	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || !validCanonicalSourcePath(value.ManifestPath) || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.RawManifestBytesDigest)) || value.ManifestByteLimit == 0 || !validSHA256Digest(string(value.TypedPayloadDigest)) {
+	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || !validCanonicalSourcePath(value.ManifestPath) || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.RawManifestBytesDigest)) || value.ManifestByteLimit == 0 || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidGrant
 	}
 	digest, err := DigestManifestClosurePlanRequestPayload(value.Payload())
@@ -136,7 +137,7 @@ type ClosurePlanPayload struct {
 	ParticipantID          ParticipantID        `json:"participantID"`
 	ParticipantVersionID   ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID       string               `json:"repositoryNodeID"`
-	Commit                 string               `json:"commit"`
+	CommitOID              SourceObjectID       `json:"commitOID"`
 	ManifestPath           string               `json:"manifestPath"`
 	ManifestEntryKind      SourceEntryKind      `json:"manifestEntryKind"`
 	ManifestRequestDigest  PayloadDigest        `json:"manifestRequestDigest"`
@@ -152,7 +153,7 @@ type ClosurePlan struct {
 	ParticipantID          ParticipantID        `json:"participantID"`
 	ParticipantVersionID   ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID       string               `json:"repositoryNodeID"`
-	Commit                 string               `json:"commit"`
+	CommitOID              SourceObjectID       `json:"commitOID"`
 	ManifestPath           string               `json:"manifestPath"`
 	ManifestEntryKind      SourceEntryKind      `json:"manifestEntryKind"`
 	ManifestRequestDigest  PayloadDigest        `json:"manifestRequestDigest"`
@@ -170,7 +171,7 @@ func NewClosurePlan(payload ClosurePlanPayload) (ClosurePlan, error) {
 	plan := ClosurePlan{
 		ClosurePlanID: payload.ClosurePlanID, ProviderID: payload.ProviderID, AdapterID: payload.AdapterID,
 		ParticipantID: payload.ParticipantID, ParticipantVersionID: payload.ParticipantVersionID,
-		RepositoryNodeID: payload.RepositoryNodeID, Commit: payload.Commit,
+		RepositoryNodeID: payload.RepositoryNodeID, CommitOID: payload.CommitOID,
 		ManifestPath: payload.ManifestPath, ManifestEntryKind: payload.ManifestEntryKind,
 		ManifestRequestDigest:  payload.ManifestRequestDigest,
 		RawManifestBytesDigest: payload.RawManifestBytesDigest,
@@ -187,7 +188,7 @@ func (p ClosurePlan) Payload() ClosurePlanPayload {
 	return ClosurePlanPayload{
 		ClosurePlanID: p.ClosurePlanID, ProviderID: p.ProviderID, AdapterID: p.AdapterID,
 		ParticipantID: p.ParticipantID, ParticipantVersionID: p.ParticipantVersionID,
-		RepositoryNodeID: p.RepositoryNodeID, Commit: p.Commit,
+		RepositoryNodeID: p.RepositoryNodeID, CommitOID: p.CommitOID,
 		ManifestPath: p.ManifestPath, ManifestEntryKind: p.ManifestEntryKind,
 		ManifestRequestDigest:  p.ManifestRequestDigest,
 		RawManifestBytesDigest: p.RawManifestBytesDigest,
@@ -200,7 +201,7 @@ func DigestClosurePlanPayload(payload ClosurePlanPayload) (PayloadDigest, error)
 }
 
 func ValidateClosurePlan(value ClosurePlan) error {
-	if value.ClosurePlanID == "" || value.ProviderID == "" || value.AdapterID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || !validCanonicalSourcePath(value.ManifestPath) || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.ManifestRequestDigest)) || !validSHA256Digest(string(value.RawManifestBytesDigest)) || len(value.Files) == 0 || value.AggregateByteLimit == 0 || !validSHA256Digest(string(value.ClosurePlanDigest)) {
+	if value.ClosurePlanID == "" || value.ProviderID == "" || value.AdapterID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || !validCanonicalSourcePath(value.ManifestPath) || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.ManifestRequestDigest)) || !validSHA256Digest(string(value.RawManifestBytesDigest)) || len(value.Files) == 0 || value.AggregateByteLimit == 0 || !validSHA256Digest(string(value.ClosurePlanDigest)) {
 		return ErrInvalidExecution
 	}
 	seen := map[string]bool{}
@@ -238,7 +239,7 @@ type ClosurePlanReceipt struct {
 }
 
 func ValidateClosurePlanReceiptForRequest(receipt ClosurePlanReceipt, request ManifestClosurePlanRequest) error {
-	if ValidateManifestClosurePlanRequest(request) != nil || ValidateClosurePlan(receipt.Plan) != nil || receipt.ProviderID != request.ProviderID || receipt.AdapterID != request.AdapterID || receipt.CommandID != request.CommandID || receipt.ParticipantID != request.ParticipantID || receipt.ParticipantVersionID != request.ParticipantVersionID || receipt.RequestPayloadDigest != request.TypedPayloadDigest || receipt.Plan.ProviderID != request.ProviderID || receipt.Plan.AdapterID != request.AdapterID || receipt.Plan.ParticipantID != request.ParticipantID || receipt.Plan.ParticipantVersionID != request.ParticipantVersionID || receipt.Plan.RepositoryNodeID != request.RepositoryNodeID || receipt.Plan.Commit != request.Commit || receipt.Plan.ManifestPath != request.ManifestPath || receipt.Plan.ManifestEntryKind != request.ManifestEntryKind || receipt.Plan.ManifestRequestDigest != request.TypedPayloadDigest || receipt.Plan.RawManifestBytesDigest != request.RawManifestBytesDigest {
+	if ValidateManifestClosurePlanRequest(request) != nil || ValidateClosurePlan(receipt.Plan) != nil || receipt.ProviderID != request.ProviderID || receipt.AdapterID != request.AdapterID || receipt.CommandID != request.CommandID || receipt.ParticipantID != request.ParticipantID || receipt.ParticipantVersionID != request.ParticipantVersionID || receipt.RequestPayloadDigest != request.TypedPayloadDigest || receipt.Plan.ProviderID != request.ProviderID || receipt.Plan.AdapterID != request.AdapterID || receipt.Plan.ParticipantID != request.ParticipantID || receipt.Plan.ParticipantVersionID != request.ParticipantVersionID || receipt.Plan.RepositoryNodeID != request.RepositoryNodeID || receipt.Plan.CommitOID != request.CommitOID || receipt.Plan.ManifestPath != request.ManifestPath || receipt.Plan.ManifestEntryKind != request.ManifestEntryKind || receipt.Plan.ManifestRequestDigest != request.TypedPayloadDigest || receipt.Plan.RawManifestBytesDigest != request.RawManifestBytesDigest {
 		return ErrInvalidExecution
 	}
 	switch receipt.Status {
@@ -288,7 +289,7 @@ type CandidateClosureRetentionRequestPayload struct {
 	ParticipantID                   ParticipantID        `json:"participantID"`
 	ParticipantVersionID            ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID                string               `json:"repositoryNodeID"`
-	Commit                          string               `json:"commit"`
+	CommitOID                       SourceObjectID       `json:"commitOID"`
 	ClosurePlanID                   ClosurePlanID        `json:"closurePlanID"`
 	ClosurePlanDigest               PayloadDigest        `json:"closurePlanDigest"`
 	CandidateTransferredBytesDigest ArtifactDigest       `json:"candidateTransferredBytesDigest"`
@@ -305,7 +306,7 @@ type CandidateClosureRetentionRequest struct {
 	ParticipantID                   ParticipantID        `json:"participantID"`
 	ParticipantVersionID            ParticipantVersionID `json:"participantVersionID"`
 	RepositoryNodeID                string               `json:"repositoryNodeID"`
-	Commit                          string               `json:"commit"`
+	CommitOID                       SourceObjectID       `json:"commitOID"`
 	ClosurePlanID                   ClosurePlanID        `json:"closurePlanID"`
 	ClosurePlanDigest               PayloadDigest        `json:"closurePlanDigest"`
 	CandidateTransferredBytesDigest ArtifactDigest       `json:"candidateTransferredBytesDigest"`
@@ -321,7 +322,7 @@ func NewCandidateClosureRetentionRequest(payload CandidateClosureRetentionReques
 	request := CandidateClosureRetentionRequest{
 		ProviderID: payload.ProviderID, AdapterID: payload.AdapterID, CommandID: payload.CommandID,
 		ParticipantID: payload.ParticipantID, ParticipantVersionID: payload.ParticipantVersionID,
-		RepositoryNodeID: payload.RepositoryNodeID, Commit: payload.Commit,
+		RepositoryNodeID: payload.RepositoryNodeID, CommitOID: payload.CommitOID,
 		ClosurePlanID: payload.ClosurePlanID, ClosurePlanDigest: payload.ClosurePlanDigest,
 		CandidateTransferredBytesDigest: payload.CandidateTransferredBytesDigest,
 		AggregateByteLimit:              payload.AggregateByteLimit, TypedPayloadDigest: digest,
@@ -336,7 +337,7 @@ func (r CandidateClosureRetentionRequest) Payload() CandidateClosureRetentionReq
 	return CandidateClosureRetentionRequestPayload{
 		ProviderID: r.ProviderID, AdapterID: r.AdapterID, CommandID: r.CommandID,
 		ParticipantID: r.ParticipantID, ParticipantVersionID: r.ParticipantVersionID,
-		RepositoryNodeID: r.RepositoryNodeID, Commit: r.Commit,
+		RepositoryNodeID: r.RepositoryNodeID, CommitOID: r.CommitOID,
 		ClosurePlanID: r.ClosurePlanID, ClosurePlanDigest: r.ClosurePlanDigest,
 		CandidateTransferredBytesDigest: r.CandidateTransferredBytesDigest,
 		AggregateByteLimit:              r.AggregateByteLimit,
@@ -348,7 +349,7 @@ func DigestCandidateClosureRetentionRequestPayload(payload CandidateClosureReten
 }
 
 func ValidateCandidateClosureRetentionRequest(value CandidateClosureRetentionRequest) error {
-	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || !validSHA256Digest(string(value.CandidateTransferredBytesDigest)) || value.AggregateByteLimit == 0 || !validSHA256Digest(string(value.TypedPayloadDigest)) {
+	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || !validSHA256Digest(string(value.CandidateTransferredBytesDigest)) || value.AggregateByteLimit == 0 || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidGrant
 	}
 	digest, err := DigestCandidateClosureRetentionRequestPayload(value.Payload())
@@ -361,7 +362,7 @@ func ValidateCandidateClosureRetentionRequest(value CandidateClosureRetentionReq
 // ValidateCandidateClosureInput binds plan, ordered paths, byte limits and
 // transferred bytes before the provider may retain anything.
 func ValidateCandidateClosureInput(request CandidateClosureRetentionRequest, plan ClosurePlan, transfer CandidateClosureTransfer) error {
-	if ValidateCandidateClosureRetentionRequest(request) != nil || ValidateClosurePlan(plan) != nil || request.ProviderID != plan.ProviderID || request.AdapterID != plan.AdapterID || request.ParticipantID != plan.ParticipantID || request.ParticipantVersionID != plan.ParticipantVersionID || request.RepositoryNodeID != plan.RepositoryNodeID || request.Commit != plan.Commit || request.ClosurePlanID != plan.ClosurePlanID || request.ClosurePlanDigest != plan.ClosurePlanDigest || request.AggregateByteLimit != plan.AggregateByteLimit || len(transfer.Files) != len(plan.Files) {
+	if ValidateCandidateClosureRetentionRequest(request) != nil || ValidateClosurePlan(plan) != nil || request.ProviderID != plan.ProviderID || request.AdapterID != plan.AdapterID || request.ParticipantID != plan.ParticipantID || request.ParticipantVersionID != plan.ParticipantVersionID || request.RepositoryNodeID != plan.RepositoryNodeID || request.CommitOID != plan.CommitOID || request.ClosurePlanID != plan.ClosurePlanID || request.ClosurePlanDigest != plan.ClosurePlanDigest || request.AggregateByteLimit != plan.AggregateByteLimit || len(transfer.Files) != len(plan.Files) {
 		return ErrInvalidGrant
 	}
 	return validateTransferAgainstPlan(plan, transfer, request.CandidateTransferredBytesDigest, request.AggregateByteLimit)
@@ -423,24 +424,28 @@ func ValidateArtifactRetentionReceiptForRequest(receipt ArtifactRetentionReceipt
 }
 
 type ArtifactPublicationRequestPayload struct {
-	ProviderID           ProviderID                 `json:"providerID"`
-	AdapterID            AdapterID                  `json:"adapterID"`
-	CommandID            CommandID                  `json:"commandID"`
-	ParticipantID        ParticipantID              `json:"participantID"`
-	ParticipantVersionID ParticipantVersionID       `json:"participantVersionID"`
-	RetentionReceiptID   ArtifactRetentionReceiptID `json:"retentionReceiptID"`
-	ArtifactDigest       ArtifactDigest             `json:"artifactDigest"`
+	ProviderID              ProviderID                              `json:"providerID"`
+	AdapterID               AdapterID                               `json:"adapterID"`
+	CommandID               CommandID                               `json:"commandID"`
+	ParticipantID           ParticipantID                           `json:"participantID"`
+	ParticipantVersionID    ParticipantVersionID                    `json:"participantVersionID"`
+	RetentionReceiptID      ArtifactRetentionReceiptID              `json:"retentionReceiptID"`
+	ArtifactDigest          ArtifactDigest                          `json:"artifactDigest"`
+	DisclosureReceiptID     ArtifactDisclosureVerificationReceiptID `json:"disclosureReceiptID"`
+	DisclosureRequestDigest PayloadDigest                           `json:"disclosureRequestDigest"`
 }
 
 type ArtifactPublicationRequest struct {
-	ProviderID           ProviderID                 `json:"providerID"`
-	AdapterID            AdapterID                  `json:"adapterID"`
-	CommandID            CommandID                  `json:"commandID"`
-	ParticipantID        ParticipantID              `json:"participantID"`
-	ParticipantVersionID ParticipantVersionID       `json:"participantVersionID"`
-	RetentionReceiptID   ArtifactRetentionReceiptID `json:"retentionReceiptID"`
-	ArtifactDigest       ArtifactDigest             `json:"artifactDigest"`
-	TypedPayloadDigest   PayloadDigest              `json:"typedPayloadDigest"`
+	ProviderID              ProviderID                              `json:"providerID"`
+	AdapterID               AdapterID                               `json:"adapterID"`
+	CommandID               CommandID                               `json:"commandID"`
+	ParticipantID           ParticipantID                           `json:"participantID"`
+	ParticipantVersionID    ParticipantVersionID                    `json:"participantVersionID"`
+	RetentionReceiptID      ArtifactRetentionReceiptID              `json:"retentionReceiptID"`
+	ArtifactDigest          ArtifactDigest                          `json:"artifactDigest"`
+	DisclosureReceiptID     ArtifactDisclosureVerificationReceiptID `json:"disclosureReceiptID"`
+	DisclosureRequestDigest PayloadDigest                           `json:"disclosureRequestDigest"`
+	TypedPayloadDigest      PayloadDigest                           `json:"typedPayloadDigest"`
 }
 
 func NewArtifactPublicationRequest(payload ArtifactPublicationRequestPayload) (ArtifactPublicationRequest, error) {
@@ -452,6 +457,7 @@ func NewArtifactPublicationRequest(payload ArtifactPublicationRequestPayload) (A
 		ProviderID: payload.ProviderID, AdapterID: payload.AdapterID, CommandID: payload.CommandID,
 		ParticipantID: payload.ParticipantID, ParticipantVersionID: payload.ParticipantVersionID,
 		RetentionReceiptID: payload.RetentionReceiptID, ArtifactDigest: payload.ArtifactDigest,
+		DisclosureReceiptID: payload.DisclosureReceiptID, DisclosureRequestDigest: payload.DisclosureRequestDigest,
 		TypedPayloadDigest: digest,
 	}
 	if err := ValidateArtifactPublicationRequest(request); err != nil {
@@ -465,6 +471,7 @@ func (r ArtifactPublicationRequest) Payload() ArtifactPublicationRequestPayload 
 		ProviderID: r.ProviderID, AdapterID: r.AdapterID, CommandID: r.CommandID,
 		ParticipantID: r.ParticipantID, ParticipantVersionID: r.ParticipantVersionID,
 		RetentionReceiptID: r.RetentionReceiptID, ArtifactDigest: r.ArtifactDigest,
+		DisclosureReceiptID: r.DisclosureReceiptID, DisclosureRequestDigest: r.DisclosureRequestDigest,
 	}
 }
 
@@ -473,7 +480,7 @@ func DigestArtifactPublicationRequestPayload(payload ArtifactPublicationRequestP
 }
 
 func ValidateArtifactPublicationRequest(value ArtifactPublicationRequest) error {
-	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || !validSHA256Digest(string(value.TypedPayloadDigest)) {
+	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || value.DisclosureReceiptID == "" || !validSHA256Digest(string(value.DisclosureRequestDigest)) || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidGrant
 	}
 	digest, err := DigestArtifactPublicationRequestPayload(value.Payload())
@@ -491,22 +498,24 @@ const (
 )
 
 type ArtifactPublicationReceipt struct {
-	ReceiptID                ArtifactPublicationReceiptID     `json:"receiptID"`
-	ProviderID               ProviderID                       `json:"providerID"`
-	AdapterID                AdapterID                        `json:"adapterID"`
-	CommandID                CommandID                        `json:"commandID"`
-	ParticipantID            ParticipantID                    `json:"participantID"`
-	ParticipantVersionID     ParticipantVersionID             `json:"participantVersionID"`
-	RetentionReceiptID       ArtifactRetentionReceiptID       `json:"retentionReceiptID"`
-	PublicationRequestDigest PayloadDigest                    `json:"publicationRequestDigest"`
-	ArtifactDigest           ArtifactDigest                   `json:"artifactDigest"`
-	PublishedAt              time.Time                        `json:"publishedAt"`
-	PublicReference          PublicArtifactReference          `json:"publicReference"`
-	Status                   ArtifactPublicationReceiptStatus `json:"status"`
+	ReceiptID                ArtifactPublicationReceiptID            `json:"receiptID"`
+	ProviderID               ProviderID                              `json:"providerID"`
+	AdapterID                AdapterID                               `json:"adapterID"`
+	CommandID                CommandID                               `json:"commandID"`
+	ParticipantID            ParticipantID                           `json:"participantID"`
+	ParticipantVersionID     ParticipantVersionID                    `json:"participantVersionID"`
+	RetentionReceiptID       ArtifactRetentionReceiptID              `json:"retentionReceiptID"`
+	DisclosureReceiptID      ArtifactDisclosureVerificationReceiptID `json:"disclosureReceiptID"`
+	DisclosureRequestDigest  PayloadDigest                           `json:"disclosureRequestDigest"`
+	PublicationRequestDigest PayloadDigest                           `json:"publicationRequestDigest"`
+	ArtifactDigest           ArtifactDigest                          `json:"artifactDigest"`
+	PublishedAt              time.Time                               `json:"publishedAt"`
+	PublicReference          PublicArtifactReference                 `json:"publicReference"`
+	Status                   ArtifactPublicationReceiptStatus        `json:"status"`
 }
 
 func ValidateArtifactPublicationReceiptForRequest(receipt ArtifactPublicationReceipt, request ArtifactPublicationRequest) error {
-	if ValidateArtifactPublicationRequest(request) != nil || receipt.ReceiptID == "" || receipt.ProviderID != request.ProviderID || receipt.AdapterID != request.AdapterID || receipt.CommandID != request.CommandID || receipt.ParticipantID != request.ParticipantID || receipt.ParticipantVersionID != request.ParticipantVersionID || receipt.RetentionReceiptID != request.RetentionReceiptID || receipt.PublicationRequestDigest != request.TypedPayloadDigest || receipt.ArtifactDigest != request.ArtifactDigest || receipt.PublishedAt.IsZero() || receipt.PublicReference == "" {
+	if ValidateArtifactPublicationRequest(request) != nil || receipt.ReceiptID == "" || receipt.ProviderID != request.ProviderID || receipt.AdapterID != request.AdapterID || receipt.CommandID != request.CommandID || receipt.ParticipantID != request.ParticipantID || receipt.ParticipantVersionID != request.ParticipantVersionID || receipt.RetentionReceiptID != request.RetentionReceiptID || receipt.DisclosureReceiptID != request.DisclosureReceiptID || receipt.DisclosureRequestDigest != request.DisclosureRequestDigest || receipt.PublicationRequestDigest != request.TypedPayloadDigest || receipt.ArtifactDigest != request.ArtifactDigest || receipt.PublishedAt.IsZero() || !validPublicArtifactReference(receipt.PublicReference) {
 		return ErrInvalidExecution
 	}
 	switch receipt.Status {
@@ -559,6 +568,28 @@ func validSourceEntryKind(value SourceEntryKind) bool {
 	default:
 		return false
 	}
+}
+
+// validSourceObjectID accepts only algorithm-qualified, full immutable Git
+// object IDs. Branches, tags, abbreviated hashes, mixed case, and bare hashes
+// are deliberately not source identities.
+func validSourceObjectID(value SourceObjectID) bool {
+	text := string(value)
+	var digits string
+	switch {
+	case strings.HasPrefix(text, "sha1:") && len(text) == len("sha1:")+40:
+		digits = text[len("sha1:"):]
+	case strings.HasPrefix(text, "sha256:") && len(text) == len("sha256:")+64:
+		digits = text[len("sha256:"):]
+	default:
+		return false
+	}
+	for _, char := range digits {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func digestJSON(domain string, value any) (PayloadDigest, error) {

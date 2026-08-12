@@ -39,7 +39,13 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 		violations = append(violations, fmt.Errorf("fresh-token replay = %+v: %v", replay, err))
 	}
 
-	for name, mutate := range requestPayloadMutations() {
+	for name, mutate := range requestPayloadMutations(request) {
+		mutationProvider := factory()
+		baseline, baselineErr := mutationProvider.LaunchExecution(ctx, launchGrantFixture(request, "mutation-baseline-"+name, "key-a"), request)
+		if baselineErr != nil || baseline.Status != contract4competios.ReceiptAccepted {
+			violations = append(violations, fmt.Errorf("%s mutation baseline = %+v: %v", name, baseline, baselineErr))
+			continue
+		}
 		payload := copyRequestPayload(request)
 		mutate(&payload)
 		changed, buildErr := contract4competios.NewExecutionRequest(payload)
@@ -48,8 +54,17 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 			continue
 		}
 		changedGrant := launchGrantFixture(changed, "changed-"+name, "key-a")
-		if _, launchErr := provider.LaunchExecution(ctx, changedGrant, changed); !errors.Is(launchErr, contract4competios.ErrCommandConflict) {
-			violations = append(violations, fmt.Errorf("%s same-command mutation error = %v", name, launchErr))
+		_, launchErr := mutationProvider.LaunchExecution(ctx, changedGrant, changed)
+		want := contract4competios.ErrCommandConflict
+		if name == "provider" || name == "adapter" {
+			want = contract4competios.ErrInvalidGrant
+		}
+		if !errors.Is(launchErr, want) {
+			violations = append(violations, fmt.Errorf("%s same-command mutation error = %v, want %v", name, launchErr, want))
+		}
+		replayed, replayErr := mutationProvider.LaunchExecution(ctx, launchGrantFixture(request, "mutation-replay-"+name, "key-rotated"), request)
+		if replayErr != nil || replayed.Status != contract4competios.ReceiptReplayed || replayed.ProviderInstanceID != baseline.ProviderInstanceID || !sameReceiptEvidence(baseline, replayed) {
+			violations = append(violations, fmt.Errorf("%s exact replay after rejection = %+v: %v", name, replayed, replayErr))
 		}
 	}
 
@@ -67,10 +82,15 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 	}
 
 	for name, mutate := range invalidLaunchGrantMutations() {
+		rejectionProvider := factory()
 		bad := launchGrantFixture(request, "bad-"+name, "key-a")
 		mutate(&bad.Claims)
-		if _, launchErr := provider.LaunchExecution(ctx, bad, request); launchErr == nil {
+		if _, launchErr := rejectionProvider.LaunchExecution(ctx, bad, request); launchErr == nil {
 			violations = append(violations, fmt.Errorf("%s grant was accepted", name))
+		}
+		accepted, launchErr := rejectionProvider.LaunchExecution(ctx, launchGrantFixture(request, "valid-after-bad-"+name, "key-a"), request)
+		if launchErr != nil || accepted.Status != contract4competios.ReceiptAccepted {
+			violations = append(violations, fmt.Errorf("valid launch after rejected %s grant = %+v: %v", name, accepted, launchErr))
 		}
 	}
 	return violations
@@ -88,64 +108,76 @@ func sameReceiptEvidence(first, replay contract4competios.ExecutionReceipt) bool
 	return true
 }
 
-func requestPayloadMutations() map[string]func(*contract4competios.ExecutionRequestPayload) {
-	return map[string]func(*contract4competios.ExecutionRequestPayload){
-		"id":          func(v *contract4competios.ExecutionRequestPayload) { v.ID = "changed-request" },
-		"provider":    func(v *contract4competios.ExecutionRequestPayload) { v.ProviderID = "changed-provider" },
-		"adapter":     func(v *contract4competios.ExecutionRequestPayload) { v.AdapterID = "changed-adapter" },
-		"competition": func(v *contract4competios.ExecutionRequestPayload) { v.CompetitionID = "changed-cup" },
-		"contest":     func(v *contract4competios.ExecutionRequestPayload) { v.ContestID = "changed-contest" },
-		"game":        func(v *contract4competios.ExecutionRequestPayload) { v.GameID = "changed-game" },
-		"ruleset":     func(v *contract4competios.ExecutionRequestPayload) { v.RulesetVersion = "changed-rules" },
-		"profile kind": func(v *contract4competios.ExecutionRequestPayload) {
-			v.Profile = contract4competios.ExecutionProfile{
-				Kind: contract4competios.ExecutionProfileParticipantScheduled,
-				ParticipantScheduled: &contract4competios.ParticipantScheduledProfile{
-					StartsAt: fixtureTime.Add(2 * time.Hour),
-					Slots: []contract4competios.ParticipantScheduledSlot{
-						{Ordinal: 0, EntryID: "entry-a", Participants: []contract4competios.ParticipantID{"human-a"}},
-						{Ordinal: 1, EntryID: "entry-b", Participants: []contract4competios.ParticipantID{"human-b"}},
-					},
-				},
-			}
-		},
-		"slot order": func(v *contract4competios.ExecutionRequestPayload) {
+func requestPayloadMutations(request contract4competios.ExecutionRequest) map[string]func(*contract4competios.ExecutionRequestPayload) {
+	mutations := map[string]func(*contract4competios.ExecutionRequestPayload){
+		"id":               func(v *contract4competios.ExecutionRequestPayload) { v.ID = "changed-request" },
+		"provider":         func(v *contract4competios.ExecutionRequestPayload) { v.ProviderID = "changed-provider" },
+		"adapter":          func(v *contract4competios.ExecutionRequestPayload) { v.AdapterID = "changed-adapter" },
+		"competition":      func(v *contract4competios.ExecutionRequestPayload) { v.CompetitionID = "changed-cup" },
+		"contest":          func(v *contract4competios.ExecutionRequestPayload) { v.ContestID = "changed-contest" },
+		"game":             func(v *contract4competios.ExecutionRequestPayload) { v.GameID = "changed-game" },
+		"ruleset":          func(v *contract4competios.ExecutionRequestPayload) { v.RulesetVersion = "changed-rules" },
+		"public artifacts": func(v *contract4competios.ExecutionRequestPayload) { v.RequestedPublicArtifacts = nil },
+		"callback":         func(v *contract4competios.ExecutionRequestPayload) { v.Callback.Resource = "/changed/events" },
+	}
+	if request.Profile.Kind == contract4competios.ExecutionProfileProviderExecuted {
+		mutations["profile kind"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile = scheduledExecutionFixture().Profile
+		}
+		mutations["slot order"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots[0].EntryID, v.Profile.ProviderExecuted.Slots[1].EntryID = v.Profile.ProviderExecuted.Slots[1].EntryID, v.Profile.ProviderExecuted.Slots[0].EntryID
 			v.Profile.ProviderExecuted.Slots[0].Participant, v.Profile.ProviderExecuted.Slots[1].Participant = v.Profile.ProviderExecuted.Slots[1].Participant, v.Profile.ProviderExecuted.Slots[0].Participant
-		},
-		"slot entry": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["slot entry"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots[0].EntryID = "changed-entry"
-		},
-		"participant": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["participant"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots[0].Participant.ParticipantID = "changed-participant"
-		},
-		"participant version": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["participant version"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots[0].Participant.ParticipantVersionID = "changed-version"
-		},
-		"artifact digest": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["artifact digest"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots[0].Participant.ArtifactDigest = artifactDigest("9")
-		},
-		"slot count": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["slot count"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Slots = append(v.Profile.ProviderExecuted.Slots, contract4competios.ExecutionSlot{
 				Ordinal: 2, EntryID: "entry-c",
 				Participant: contract4competios.ParticipantVersionRef{ParticipantID: "participant-c", ParticipantVersionID: "version-c", ArtifactDigest: artifactDigest("c")},
 			})
-		},
-		"configuration version": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["configuration version"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Configuration.Version = "changed-config"
-		},
-		"configuration body": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["configuration body"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Configuration.Data = []byte("changed")
-		},
-		"not before": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["not before"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.NotBefore = v.Profile.ProviderExecuted.NotBefore.Add(time.Second)
-		},
-		"deadline": func(v *contract4competios.ExecutionRequestPayload) {
+		}
+		mutations["deadline"] = func(v *contract4competios.ExecutionRequestPayload) {
 			v.Profile.ProviderExecuted.Deadline = v.Profile.ProviderExecuted.Deadline.Add(time.Second)
-		},
-		"public artifacts": func(v *contract4competios.ExecutionRequestPayload) { v.RequestedPublicArtifacts = nil },
-		"callback":         func(v *contract4competios.ExecutionRequestPayload) { v.Callback.Resource = "/changed/events" },
+		}
+	} else {
+		mutations["profile kind"] = func(v *contract4competios.ExecutionRequestPayload) { v.Profile = executionFixture().Profile }
+		mutations["slot order"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile.ParticipantScheduled.Slots[0].EntryID, v.Profile.ParticipantScheduled.Slots[1].EntryID = v.Profile.ParticipantScheduled.Slots[1].EntryID, v.Profile.ParticipantScheduled.Slots[0].EntryID
+			v.Profile.ParticipantScheduled.Slots[0].Participants, v.Profile.ParticipantScheduled.Slots[1].Participants = v.Profile.ParticipantScheduled.Slots[1].Participants, v.Profile.ParticipantScheduled.Slots[0].Participants
+		}
+		mutations["slot entry"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile.ParticipantScheduled.Slots[0].EntryID = "changed-entry"
+		}
+		mutations["participant"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile.ParticipantScheduled.Slots[0].Participants[0] = "changed-person"
+		}
+		mutations["slot count"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile.ParticipantScheduled.Slots = append(v.Profile.ParticipantScheduled.Slots, contract4competios.ParticipantScheduledSlot{Ordinal: 2, EntryID: "entry-c", Participants: []contract4competios.ParticipantID{"person-d"}})
+		}
+		mutations["starts at"] = func(v *contract4competios.ExecutionRequestPayload) {
+			v.Profile.ParticipantScheduled.StartsAt = v.Profile.ParticipantScheduled.StartsAt.Add(time.Second)
+		}
 	}
+	return mutations
 }
 
 func invalidLaunchGrantMutations() map[string]func(*contract4competios.OperationGrant) {

@@ -65,10 +65,11 @@ both Chess Raiders and a Bidding Tic-Tac-Toe fake before changing types.
 Inventory frozen on 2026-08-12 against ext-competios backend v0.0.1:
 
 - `sneat-co/competios/backend` directly consumes the legacy types in
-  `competios/{contest_start_sink.go,launch.go,ports.go,result_sink.go,scheduling.go,service.go,types.go,validation.go}`;
+  `competios/{contest_start_sink.go,launch.go,ports.go,result_sink.go,results.go,scheduling.go,service.go,types.go,validation.go}`;
   its direct contract tests are
   `api4competiosapp/organiser_operations_production_test.go`,
   `competios/{adjudication_test.go,competition_test.go,contest_start_sink_test.go,result_sink_test.go,results_test.go,scheduling_test.go,service_external_test.go,test_helpers_test.go}`,
+  `competiostest/{ports_test.go,ruleset.go}`,
   `dal4competios/{organiser_operations_action_family_test.go,repository_test.go,series_qualification_repository_test.go}`,
   `production/factory_test.go` and
   `seriesinteraction/battle_navigation_test.go`. `production/factory.go`

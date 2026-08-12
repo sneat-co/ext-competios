@@ -68,6 +68,11 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	}
 
 	transfer := sourceCandidateTransferFixture()
+	crossStageCandidate := sourceCandidateRequestFixture(planReceipt.Plan, transfer, manifest.CommandID)
+	crossStageCandidateGrant, _ := sourceCandidateGrantFixture(crossStageCandidate, transfer, "cross-stage-candidate-token", "key-a")
+	if _, candidateErr := provider.ValidateAndRetainCandidate(ctx, crossStageCandidateGrant, crossStageCandidate, transfer); !errors.Is(candidateErr, contract4competios.ErrCommandConflict) {
+		violations = append(violations, fmt.Errorf("manifest command reused for candidate error = %v", candidateErr))
+	}
 	candidate := sourceCandidateRequestFixture(planReceipt.Plan, transfer, "candidate-command")
 	candidateGrant, _ := sourceCandidateGrantFixture(candidate, transfer, "candidate-token", "key-a")
 	retention, err := provider.ValidateAndRetainCandidate(ctx, candidateGrant, candidate, transfer)
@@ -131,28 +136,60 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 			violations = append(violations, errors.New("unknown closure plan was accepted"))
 		}
 	}
-
-	publication := sourcePublicationRequestFixture(retention)
-	publicationGrant, _ := sourcePublicationGrantFixture(publication, "publication-token", "key-a")
-	published, err := provider.PublishArtifact(ctx, publicationGrant, publication)
-	if err != nil || contract4competios.ValidateArtifactPublicationReceiptForRequest(published, publication) != nil || published.Status != contract4competios.ArtifactPublicationAccepted {
-		violations = append(violations, fmt.Errorf("publication receipt = %+v: %v", published, err))
+	crossStageDisclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, transfer, candidate.CommandID)
+	crossStageDisclosureGrant, _ := sourceDisclosureGrantFixture(crossStageDisclosure, transfer, "cross-stage-disclosure-token", "key-a")
+	if _, disclosureErr := provider.VerifyArtifactDisclosure(ctx, crossStageDisclosureGrant, crossStageDisclosure, transfer); !errors.Is(disclosureErr, contract4competios.ErrCommandConflict) {
+		violations = append(violations, fmt.Errorf("candidate command reused for disclosure error = %v", disclosureErr))
 	}
-	freshPublicationGrant, _ := sourcePublicationGrantFixture(publication, "publication-token-fresh", "key-rotated")
-	replayedPublication, err := provider.PublishArtifact(ctx, freshPublicationGrant, publication)
-	if err != nil || replayedPublication.Status != contract4competios.ArtifactPublicationReplayed || replayedPublication.ReceiptID != published.ReceiptID || replayedPublication.PublicReference != published.PublicReference || !replayedPublication.PublishedAt.Equal(published.PublishedAt) {
-		violations = append(violations, fmt.Errorf("publication replay = %+v: %v", replayedPublication, err))
-	}
-	changedPublicationPayload := publication.Payload()
-	changedPublicationPayload.ParticipantVersionID = "changed-version"
-	changedPublication, buildErr := contract4competios.NewArtifactPublicationRequest(changedPublicationPayload)
-	if buildErr != nil {
-		violations = append(violations, buildErr)
-	} else {
-		changedPublicationGrant, _ := sourcePublicationGrantFixture(changedPublication, "publication-command-conflict", "key-a")
-		if _, publishErr := provider.PublishArtifact(ctx, changedPublicationGrant, changedPublication); !errors.Is(publishErr, contract4competios.ErrCommandConflict) {
-			violations = append(violations, fmt.Errorf("changed publication command error = %v", publishErr))
+	for name, mutate := range map[string]func(*contract4competios.ArtifactDisclosureVerificationRequestPayload){
+		"id": func(value *contract4competios.ArtifactDisclosureVerificationRequestPayload) {
+			value.ClosurePlanID = "other-plan"
+		},
+		"digest": func(value *contract4competios.ArtifactDisclosureVerificationRequestPayload) {
+			value.ClosurePlanDigest = payloadDigest("4")
+		},
+	} {
+		command := contract4competios.CommandID("wrong-disclosure-plan-" + name)
+		valid := sourceDisclosureRequestFixture(planReceipt.Plan, retention, transfer, command)
+		payload := valid.Payload()
+		mutate(&payload)
+		wrong, buildErr := contract4competios.NewArtifactDisclosureVerificationRequest(payload)
+		if buildErr != nil {
+			violations = append(violations, buildErr)
+			continue
 		}
+		wrongGrant, _ := sourceDisclosureGrantFixture(wrong, transfer, "wrong-disclosure-plan-"+name+"-token", "key-a")
+		if _, disclosureErr := provider.VerifyArtifactDisclosure(ctx, wrongGrant, wrong, transfer); disclosureErr == nil {
+			violations = append(violations, fmt.Errorf("disclosure with wrong closure plan %s was accepted", name))
+		}
+		validGrant, _ := sourceDisclosureGrantFixture(valid, transfer, "valid-disclosure-after-wrong-plan-"+name, "key-a")
+		receipt, disclosureErr := provider.VerifyArtifactDisclosure(ctx, validGrant, valid, transfer)
+		if disclosureErr != nil || receipt.Verdict != contract4competios.ArtifactDisclosureMatched {
+			violations = append(violations, fmt.Errorf("valid disclosure after wrong closure plan %s = %+v: %v", name, receipt, disclosureErr))
+		}
+	}
+
+	// Publication is impossible until the provider has durably matched the
+	// public closure. The rejected command must remain available for the later
+	// valid publication, proving rejection did not mutate idempotency state.
+	preDisclosure := sourcePublicationRequestWithBinding(retention, "missing-disclosure", payloadDigest("7"), "publication-command")
+	preDisclosureGrant, _ := sourcePublicationGrantFixture(preDisclosure, "pre-disclosure-publication-token", "key-a")
+	if _, publishErr := provider.PublishArtifact(ctx, preDisclosureGrant, preDisclosure); publishErr == nil {
+		violations = append(violations, errors.New("publication before matched disclosure was accepted"))
+	}
+
+	publiclyChanged := copyCandidateTransfer(transfer)
+	publiclyChanged.Files[0].Bytes = append(publiclyChanged.Files[0].Bytes, '!')
+	mismatchDisclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, publiclyChanged, "mismatch-disclosure-command")
+	mismatchGrant, _ := sourceDisclosureGrantFixture(mismatchDisclosure, publiclyChanged, "mismatch-disclosure-token", "key-a")
+	mismatchReceipt, err := provider.VerifyArtifactDisclosure(ctx, mismatchGrant, mismatchDisclosure, publiclyChanged)
+	if err != nil || mismatchReceipt.Verdict != contract4competios.ArtifactDisclosureMismatched || contract4competios.ValidateArtifactDisclosureVerificationReceiptForRequest(mismatchReceipt, mismatchDisclosure) != nil {
+		return append(violations, fmt.Errorf("mismatching disclosure = %+v: %v", mismatchReceipt, err))
+	}
+	mismatchPublication := sourcePublicationRequestFixture(retention, mismatchDisclosure, mismatchReceipt, "mismatch-publication-command")
+	mismatchPublicationGrant, _ := sourcePublicationGrantFixture(mismatchPublication, "mismatch-publication-token", "key-a")
+	if _, publishErr := provider.PublishArtifact(ctx, mismatchPublicationGrant, mismatchPublication); publishErr == nil {
+		violations = append(violations, errors.New("publication after mismatched disclosure was accepted"))
 	}
 
 	disclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, transfer, "disclosure-command")
@@ -166,21 +203,165 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	if err != nil || replayedDisclosure != verifiedDisclosure {
 		violations = append(violations, fmt.Errorf("disclosure replay = %+v: %v", replayedDisclosure, err))
 	}
+	crossStagePublication := sourcePublicationRequestFixture(retention, disclosure, verifiedDisclosure, disclosure.CommandID)
+	crossStagePublicationGrant, _ := sourcePublicationGrantFixture(crossStagePublication, "cross-stage-publication-token", "key-a")
+	if _, publishErr := provider.PublishArtifact(ctx, crossStagePublicationGrant, crossStagePublication); !errors.Is(publishErr, contract4competios.ErrCommandConflict) {
+		violations = append(violations, fmt.Errorf("disclosure command reused for publication error = %v", publishErr))
+	}
 
-	publiclyChanged := copyCandidateTransfer(transfer)
-	publiclyChanged.Files[0].Bytes = append(publiclyChanged.Files[0].Bytes, '!')
 	conflictingDisclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, publiclyChanged, disclosure.CommandID)
 	conflictGrant, _ := sourceDisclosureGrantFixture(conflictingDisclosure, publiclyChanged, "disclosure-command-conflict", "key-a")
 	if _, disclosureErr := provider.VerifyArtifactDisclosure(ctx, conflictGrant, conflictingDisclosure, publiclyChanged); !errors.Is(disclosureErr, contract4competios.ErrCommandConflict) {
 		violations = append(violations, fmt.Errorf("changed disclosure command error = %v", disclosureErr))
 	}
-	mismatchDisclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, publiclyChanged, "mismatch-disclosure-command")
-	mismatchGrant, _ := sourceDisclosureGrantFixture(mismatchDisclosure, publiclyChanged, "mismatch-disclosure-token", "key-a")
-	mismatchReceipt, err := provider.VerifyArtifactDisclosure(ctx, mismatchGrant, mismatchDisclosure, publiclyChanged)
-	if err != nil || mismatchReceipt.Verdict != contract4competios.ArtifactDisclosureMismatched || contract4competios.ValidateArtifactDisclosureVerificationReceiptForRequest(mismatchReceipt, mismatchDisclosure) != nil {
-		violations = append(violations, fmt.Errorf("mismatching disclosure = %+v: %v", mismatchReceipt, err))
+
+	publication := sourcePublicationRequestFixture(retention, disclosure, verifiedDisclosure, "publication-command")
+	publicationGrant, _ := sourcePublicationGrantFixture(publication, "publication-token", "key-a")
+	published, err := provider.PublishArtifact(ctx, publicationGrant, publication)
+	if err != nil || contract4competios.ValidateArtifactPublicationReceiptForRequest(published, publication) != nil || published.Status != contract4competios.ArtifactPublicationAccepted {
+		violations = append(violations, fmt.Errorf("publication receipt = %+v: %v", published, err))
+	}
+	freshPublicationGrant, _ := sourcePublicationGrantFixture(publication, "publication-token-fresh", "key-rotated")
+	replayedPublication, err := provider.PublishArtifact(ctx, freshPublicationGrant, publication)
+	if err != nil || replayedPublication.Status != contract4competios.ArtifactPublicationReplayed || replayedPublication.ReceiptID != published.ReceiptID || replayedPublication.PublicReference != published.PublicReference || !replayedPublication.PublishedAt.Equal(published.PublishedAt) || replayedPublication.DisclosureReceiptID != published.DisclosureReceiptID || replayedPublication.DisclosureRequestDigest != published.DisclosureRequestDigest {
+		violations = append(violations, fmt.Errorf("publication replay = %+v: %v", replayedPublication, err))
+	}
+	changedPublicationPayload := publication.Payload()
+	changedPublicationPayload.ParticipantVersionID = "changed-version"
+	changedPublication, buildErr := contract4competios.NewArtifactPublicationRequest(changedPublicationPayload)
+	if buildErr != nil {
+		violations = append(violations, buildErr)
+	} else {
+		changedPublicationGrant, _ := sourcePublicationGrantFixture(changedPublication, "publication-command-conflict", "key-a")
+		if _, publishErr := provider.PublishArtifact(ctx, changedPublicationGrant, changedPublication); !errors.Is(publishErr, contract4competios.ErrCommandConflict) {
+			violations = append(violations, fmt.Errorf("changed publication command error = %v", publishErr))
+		}
+	}
+	crossStageManifestPayload := manifest.Payload()
+	crossStageManifestPayload.CommandID = publication.CommandID
+	crossStageManifest, buildErr := contract4competios.NewManifestClosurePlanRequest(crossStageManifestPayload)
+	if buildErr != nil {
+		violations = append(violations, buildErr)
+	} else {
+		crossStageManifestGrant, _ := sourceManifestGrantFixture(crossStageManifest, manifestBytes, "cross-stage-manifest-token", "key-a")
+		if _, planErr := provider.PlanManifestClosure(ctx, crossStageManifestGrant, crossStageManifest, manifestBytes); !errors.Is(planErr, contract4competios.ErrCommandConflict) {
+			violations = append(violations, fmt.Errorf("publication command reused for manifest error = %v", planErr))
+		}
+	}
+	return append(violations, checkSourceCommandLedgerPairs(factory)...)
+}
+
+type sourceLedgerPrerequisites struct {
+	manifestBytes []byte
+	manifest      contract4competios.ManifestClosurePlanRequest
+	candidatePlan contract4competios.ClosurePlan
+	retentionPlan contract4competios.ClosurePlan
+	transfer      contract4competios.CandidateClosureTransfer
+	retention     contract4competios.ArtifactRetentionReceipt
+	disclosure    contract4competios.ArtifactDisclosureVerificationRequest
+	matched       contract4competios.ArtifactDisclosureVerificationReceipt
+}
+
+func checkSourceCommandLedgerPairs(factory SourceArtifactProviderFactory) []error {
+	purposes := []contract4competios.GrantPurpose{
+		contract4competios.GrantPurposeManifestClosurePlan,
+		contract4competios.GrantPurposeCandidateValidateRetain,
+		contract4competios.GrantPurposeArtifactDisclosureVerify,
+		contract4competios.GrantPurposeArtifactPublish,
+	}
+	var violations []error
+	for _, first := range purposes {
+		for _, second := range purposes {
+			if first == second {
+				continue
+			}
+			provider := factory()
+			prerequisites, err := prepareSourceLedgerPrerequisites(provider)
+			if err != nil {
+				violations = append(violations, fmt.Errorf("source command ledger %s -> %s setup: %w", first, second, err))
+				continue
+			}
+			const collisionCommand contract4competios.CommandID = "all-purpose-ledger-collision"
+			if err := invokeSourceLedgerPurpose(provider, &prerequisites, first, collisionCommand); err != nil {
+				violations = append(violations, fmt.Errorf("source command ledger first %s: %w", first, err))
+				continue
+			}
+			if err := invokeSourceLedgerPurpose(provider, &prerequisites, second, collisionCommand); !errors.Is(err, contract4competios.ErrCommandConflict) {
+				violations = append(violations, fmt.Errorf("source command ledger %s -> %s error = %v", first, second, err))
+			}
+		}
 	}
 	return violations
+}
+
+func prepareSourceLedgerPrerequisites(provider contract4competios.SourceArtifactProvider) (sourceLedgerPrerequisites, error) {
+	ctx := context.Background()
+	manifestBytes := sourceManifestBytesFixture()
+	manifestPayload := sourceManifestRequestFixture(manifestBytes).Payload()
+	manifestPayload.CommandID = "ledger-setup-manifest"
+	manifest, err := contract4competios.NewManifestClosurePlanRequest(manifestPayload)
+	if err != nil {
+		return sourceLedgerPrerequisites{}, err
+	}
+	manifestGrant, _ := sourceManifestGrantFixture(manifest, manifestBytes, "ledger-setup-manifest-token", "key-a")
+	planReceipt, err := provider.PlanManifestClosure(ctx, manifestGrant, manifest, manifestBytes)
+	if err != nil || contract4competios.ValidateClosurePlanReceiptForRequest(planReceipt, manifest) != nil {
+		return sourceLedgerPrerequisites{}, fmt.Errorf("manifest prerequisite: %w", err)
+	}
+	transfer := sourceCandidateTransferFixture()
+	candidate := sourceCandidateRequestFixture(planReceipt.Plan, transfer, "ledger-setup-candidate")
+	candidateGrant, _ := sourceCandidateGrantFixture(candidate, transfer, "ledger-setup-candidate-token", "key-a")
+	retention, err := provider.ValidateAndRetainCandidate(ctx, candidateGrant, candidate, transfer)
+	if err != nil || contract4competios.ValidateArtifactRetentionReceiptForRequest(retention, candidate) != nil {
+		return sourceLedgerPrerequisites{}, fmt.Errorf("retention prerequisite: %w", err)
+	}
+	disclosure := sourceDisclosureRequestFixture(planReceipt.Plan, retention, transfer, "ledger-setup-disclosure")
+	disclosureGrant, _ := sourceDisclosureGrantFixture(disclosure, transfer, "ledger-setup-disclosure-token", "key-a")
+	matched, err := provider.VerifyArtifactDisclosure(ctx, disclosureGrant, disclosure, transfer)
+	if err != nil || contract4competios.ValidateArtifactDisclosureVerificationReceiptForRequest(matched, disclosure) != nil || matched.Verdict != contract4competios.ArtifactDisclosureMatched {
+		return sourceLedgerPrerequisites{}, fmt.Errorf("disclosure prerequisite: %w", err)
+	}
+	return sourceLedgerPrerequisites{
+		manifestBytes: manifestBytes, manifest: manifest, candidatePlan: planReceipt.Plan,
+		retentionPlan: planReceipt.Plan, transfer: transfer, retention: retention,
+		disclosure: disclosure, matched: matched,
+	}, nil
+}
+
+func invokeSourceLedgerPurpose(provider contract4competios.SourceArtifactProvider, prerequisites *sourceLedgerPrerequisites, purpose contract4competios.GrantPurpose, command contract4competios.CommandID) error {
+	ctx := context.Background()
+	switch purpose {
+	case contract4competios.GrantPurposeManifestClosurePlan:
+		payload := prerequisites.manifest.Payload()
+		payload.CommandID = command
+		request, err := contract4competios.NewManifestClosurePlanRequest(payload)
+		if err != nil {
+			return err
+		}
+		grant, _ := sourceManifestGrantFixture(request, prerequisites.manifestBytes, "ledger-manifest-token", "key-a")
+		receipt, err := provider.PlanManifestClosure(ctx, grant, request, prerequisites.manifestBytes)
+		if err == nil {
+			prerequisites.candidatePlan = receipt.Plan
+		}
+		return err
+	case contract4competios.GrantPurposeCandidateValidateRetain:
+		request := sourceCandidateRequestFixture(prerequisites.candidatePlan, prerequisites.transfer, command)
+		grant, _ := sourceCandidateGrantFixture(request, prerequisites.transfer, "ledger-candidate-token", "key-a")
+		_, err := provider.ValidateAndRetainCandidate(ctx, grant, request, prerequisites.transfer)
+		return err
+	case contract4competios.GrantPurposeArtifactDisclosureVerify:
+		request := sourceDisclosureRequestFixture(prerequisites.retentionPlan, prerequisites.retention, prerequisites.transfer, command)
+		grant, _ := sourceDisclosureGrantFixture(request, prerequisites.transfer, "ledger-disclosure-token", "key-a")
+		_, err := provider.VerifyArtifactDisclosure(ctx, grant, request, prerequisites.transfer)
+		return err
+	case contract4competios.GrantPurposeArtifactPublish:
+		request := sourcePublicationRequestFixture(prerequisites.retention, prerequisites.disclosure, prerequisites.matched, command)
+		grant, _ := sourcePublicationGrantFixture(request, "ledger-publication-token", "key-a")
+		_, err := provider.PublishArtifact(ctx, grant, request)
+		return err
+	default:
+		return fmt.Errorf("unsupported source purpose %q", purpose)
+	}
 }
 
 func sourceManifestBytesFixture() []byte {
@@ -191,7 +372,7 @@ func sourceManifestRequestFixture(manifestBytes []byte) contract4competios.Manif
 	request, err := contract4competios.NewManifestClosurePlanRequest(contract4competios.ManifestClosurePlanRequestPayload{
 		ProviderID: "provider", AdapterID: "adapter", CommandID: "manifest-command",
 		ParticipantID: "participant-a", ParticipantVersionID: "version-a",
-		RepositoryNodeID: "repository-node", Commit: "0123456789abcdef0123456789abcdef01234567",
+		RepositoryNodeID: "repository-node", CommitOID: "sha1:0123456789abcdef0123456789abcdef01234567",
 		ManifestPath: "bots/manifest.json", ManifestEntryKind: contract4competios.SourceEntryRegular,
 		RawManifestBytesDigest: contract4competios.DigestRawManifestBytes(manifestBytes),
 		ManifestByteLimit:      32768,
@@ -206,7 +387,7 @@ func sourcePlanFixture(request contract4competios.ManifestClosurePlanRequest) co
 	plan, err := contract4competios.NewClosurePlan(contract4competios.ClosurePlanPayload{
 		ClosurePlanID: "closure-plan", ProviderID: request.ProviderID, AdapterID: request.AdapterID,
 		ParticipantID: request.ParticipantID, ParticipantVersionID: request.ParticipantVersionID,
-		RepositoryNodeID: request.RepositoryNodeID, Commit: request.Commit, ManifestPath: request.ManifestPath,
+		RepositoryNodeID: request.RepositoryNodeID, CommitOID: request.CommitOID, ManifestPath: request.ManifestPath,
 		ManifestEntryKind:     request.ManifestEntryKind,
 		ManifestRequestDigest: request.TypedPayloadDigest, RawManifestBytesDigest: request.RawManifestBytesDigest,
 		Files: []contract4competios.PlannedSourceFile{
@@ -243,7 +424,7 @@ func sourceCandidateRequestFixture(plan contract4competios.ClosurePlan, transfer
 	request, err := contract4competios.NewCandidateClosureRetentionRequest(contract4competios.CandidateClosureRetentionRequestPayload{
 		ProviderID: plan.ProviderID, AdapterID: plan.AdapterID, CommandID: command,
 		ParticipantID: plan.ParticipantID, ParticipantVersionID: plan.ParticipantVersionID,
-		RepositoryNodeID: plan.RepositoryNodeID, Commit: plan.Commit,
+		RepositoryNodeID: plan.RepositoryNodeID, CommitOID: plan.CommitOID,
 		ClosurePlanID: plan.ClosurePlanID, ClosurePlanDigest: plan.ClosurePlanDigest,
 		CandidateTransferredBytesDigest: digest, AggregateByteLimit: plan.AggregateByteLimit,
 	})
@@ -253,11 +434,16 @@ func sourceCandidateRequestFixture(plan contract4competios.ClosurePlan, transfer
 	return request
 }
 
-func sourcePublicationRequestFixture(retention contract4competios.ArtifactRetentionReceipt) contract4competios.ArtifactPublicationRequest {
+func sourcePublicationRequestFixture(retention contract4competios.ArtifactRetentionReceipt, disclosure contract4competios.ArtifactDisclosureVerificationRequest, receipt contract4competios.ArtifactDisclosureVerificationReceipt, command contract4competios.CommandID) contract4competios.ArtifactPublicationRequest {
+	return sourcePublicationRequestWithBinding(retention, receipt.ReceiptID, disclosure.TypedPayloadDigest, command)
+}
+
+func sourcePublicationRequestWithBinding(retention contract4competios.ArtifactRetentionReceipt, disclosureReceiptID contract4competios.ArtifactDisclosureVerificationReceiptID, disclosureRequestDigest contract4competios.PayloadDigest, command contract4competios.CommandID) contract4competios.ArtifactPublicationRequest {
 	request, err := contract4competios.NewArtifactPublicationRequest(contract4competios.ArtifactPublicationRequestPayload{
-		ProviderID: retention.ProviderID, AdapterID: retention.AdapterID, CommandID: "publication-command",
+		ProviderID: retention.ProviderID, AdapterID: retention.AdapterID, CommandID: command,
 		ParticipantID: retention.ParticipantID, ParticipantVersionID: retention.ParticipantVersionID,
 		RetentionReceiptID: retention.ReceiptID, ArtifactDigest: retention.ArtifactDigest,
+		DisclosureReceiptID: disclosureReceiptID, DisclosureRequestDigest: disclosureRequestDigest,
 	})
 	if err != nil {
 		panic(err)
@@ -273,7 +459,7 @@ func sourceDisclosureRequestFixture(plan contract4competios.ClosurePlan, retenti
 	request, err := contract4competios.NewArtifactDisclosureVerificationRequest(contract4competios.ArtifactDisclosureVerificationRequestPayload{
 		ProviderID: plan.ProviderID, AdapterID: plan.AdapterID, CommandID: command,
 		ParticipantID: plan.ParticipantID, ParticipantVersionID: plan.ParticipantVersionID,
-		RepositoryNodeID: plan.RepositoryNodeID, Commit: plan.Commit,
+		RepositoryNodeID: plan.RepositoryNodeID, CommitOID: plan.CommitOID,
 		ClosurePlanID: plan.ClosurePlanID, ClosurePlanDigest: plan.ClosurePlanDigest,
 		AggregateByteLimit: plan.AggregateByteLimit, RetentionReceiptID: retention.ReceiptID,
 		ArtifactDigest: retention.ArtifactDigest, PublicCandidateTransferredBytesDigest: digest,
@@ -315,7 +501,7 @@ func sourceManifestGrantFixture(request contract4competios.ManifestClosurePlanRe
 	grant := sourceGrantBase(tokenID, keyID, contract4competios.GrantPurposeManifestClosurePlan, contract4competios.GrantScopeManifestClosurePlan, request.TypedPayloadDigest, rawBody, "/game/source/closure-plans")
 	grant.CommandID = request.CommandID
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit, grant.ManifestPath = request.RepositoryNodeID, request.Commit, request.ManifestPath
+	grant.RepositoryNodeID, grant.CommitOID, grant.ManifestPath = request.RepositoryNodeID, request.CommitOID, request.ManifestPath
 	grant.ManifestEntryKind = request.ManifestEntryKind
 	grant.RawManifestBytesDigest, grant.ManifestByteLimit = request.RawManifestBytesDigest, request.ManifestByteLimit
 	return contract4competios.VerifiedOperationGrant{Claims: grant}, routeForSourceGrant(grant)
@@ -329,7 +515,7 @@ func sourceCandidateGrantFixture(request contract4competios.CandidateClosureRete
 	grant := sourceGrantBase(tokenID, keyID, contract4competios.GrantPurposeCandidateValidateRetain, contract4competios.GrantScopeCandidateValidateRetain, request.TypedPayloadDigest, rawBody, "/game/source/candidate-closures")
 	grant.CommandID = request.CommandID
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit = request.RepositoryNodeID, request.Commit
+	grant.RepositoryNodeID, grant.CommitOID = request.RepositoryNodeID, request.CommitOID
 	grant.ClosurePlanID, grant.ClosurePlanDigest = request.ClosurePlanID, request.ClosurePlanDigest
 	grant.CandidateTransferredBytesDigest, grant.AggregateByteLimit = request.CandidateTransferredBytesDigest, request.AggregateByteLimit
 	return contract4competios.VerifiedOperationGrant{Claims: grant}, routeForSourceGrant(grant)
@@ -341,6 +527,7 @@ func sourcePublicationGrantFixture(request contract4competios.ArtifactPublicatio
 	grant.CommandID = request.CommandID
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
 	grant.RetentionReceiptID, grant.ArtifactDigest = request.RetentionReceiptID, request.ArtifactDigest
+	grant.DisclosureReceiptID, grant.DisclosureRequestDigest = request.DisclosureReceiptID, request.DisclosureRequestDigest
 	return contract4competios.VerifiedOperationGrant{Claims: grant}, routeForSourceGrant(grant)
 }
 
@@ -352,7 +539,7 @@ func sourceDisclosureGrantFixture(request contract4competios.ArtifactDisclosureV
 	grant := sourceGrantBase(tokenID, keyID, contract4competios.GrantPurposeArtifactDisclosureVerify, contract4competios.GrantScopeArtifactDisclosureVerify, request.TypedPayloadDigest, rawBody, "/game/artifacts/disclosure-verify")
 	grant.CommandID = request.CommandID
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit = request.RepositoryNodeID, request.Commit
+	grant.RepositoryNodeID, grant.CommitOID = request.RepositoryNodeID, request.CommitOID
 	grant.ClosurePlanID, grant.ClosurePlanDigest = request.ClosurePlanID, request.ClosurePlanDigest
 	grant.PublicCandidateTransferredBytesDigest, grant.AggregateByteLimit = request.PublicCandidateTransferredBytesDigest, request.AggregateByteLimit
 	grant.RetentionReceiptID, grant.ArtifactDigest = request.RetentionReceiptID, request.ArtifactDigest

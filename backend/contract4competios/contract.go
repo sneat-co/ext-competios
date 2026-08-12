@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -37,6 +38,9 @@ type ArtifactDigest string
 type PayloadDigest string
 type EventID string
 type ReplayReference string
+type SafeReference string
+type FailureCode string
+type AdjudicationCode string
 
 type ExecutionProfileKind string
 
@@ -163,6 +167,7 @@ func (r ExecutionRequest) Payload() ExecutionRequestPayload {
 const executionRequestDigestDomain = "competios.execution-request-payload.v1"
 const executionEventDigestDomain = "competios.execution-event-payload.v1"
 const rawTransportDigestDomain = "competios.raw-transport-body.v1"
+const providerConfigurationDigestDomain = "competios.provider-configuration.v1"
 
 func DigestExecutionRequestPayload(payload ExecutionRequestPayload) (PayloadDigest, error) {
 	encoded, err := json.Marshal(payload)
@@ -176,6 +181,10 @@ func DigestExecutionRequestPayload(payload ExecutionRequestPayload) (PayloadDige
 // body bytes. Length prefixes make component boundaries unambiguous.
 func DigestRawTransportBody(contentType string, body []byte) PayloadDigest {
 	return digestParts(rawTransportDigestDomain, []byte(contentType), body)
+}
+
+func DigestProviderConfiguration(value ProviderConfiguration) ArtifactDigest {
+	return ArtifactDigest(digestParts(providerConfigurationDigestDomain, []byte(value.Version), value.Data))
 }
 
 func digestParts(domain string, parts ...[]byte) PayloadDigest {
@@ -222,7 +231,7 @@ type ExecutionReceipt struct {
 	AdapterID          AdapterID          `json:"adapterID"`
 	ProviderInstanceID ProviderInstanceID `json:"providerInstanceID"`
 	Status             ReceiptStatus      `json:"status"`
-	SafeReferences     []string           `json:"safeReferences,omitempty"`
+	SafeReferences     []SafeReference    `json:"safeReferences,omitempty"`
 }
 
 type ExecutionProvider interface {
@@ -238,9 +247,9 @@ func ValidateExecutionReceiptForRequest(receipt ExecutionReceipt, request Execut
 	default:
 		return ErrInvalidExecution
 	}
-	seen := map[string]bool{}
+	seen := map[SafeReference]bool{}
 	for _, reference := range receipt.SafeReferences {
-		if reference == "" || seen[reference] {
+		if !validTypedReference(string(reference), "safe:") || seen[reference] {
 			return ErrInvalidExecution
 		}
 		seen[reference] = true
@@ -311,9 +320,13 @@ type RecordedProvenance struct {
 	ExecutionPayloadDigest      PayloadDigest    `json:"executionPayloadDigest"`
 }
 
+type ParticipantScheduledCompletionEvidence struct{}
+
 type CompletionEvidence struct {
-	Replay             TerminalReplay     `json:"replay"`
-	RecordedProvenance RecordedProvenance `json:"recordedProvenance"`
+	ProfileKind          ExecutionProfileKind                    `json:"profileKind"`
+	Replay               TerminalReplay                          `json:"replay"`
+	ProviderExecuted     *RecordedProvenance                     `json:"providerExecuted,omitempty"`
+	ParticipantScheduled *ParticipantScheduledCompletionEvidence `json:"participantScheduled,omitempty"`
 }
 
 type ExecutionResult struct {
@@ -333,8 +346,8 @@ type FailureEvidence struct {
 // ExecutionFailure models failed/cancelled states without fabricated results,
 // placements, runtime facts, seeds, event logs, or replays.
 type ExecutionFailure struct {
-	Code             string           `json:"code"`
-	AdjudicationCode string           `json:"adjudicationCode,omitempty"`
+	Code             FailureCode      `json:"code"`
+	AdjudicationCode AdjudicationCode `json:"adjudicationCode,omitempty"`
 	Evidence         *FailureEvidence `json:"evidence,omitempty"`
 }
 
@@ -502,11 +515,11 @@ func ValidateExecutionEvent(value ExecutionEvent) error {
 			return ErrInvalidExecution
 		}
 	case LifecycleEventCompleted:
-		if value.Result == nil || value.Failure != nil || len(value.Result.Placements) == 0 || len(value.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests) != len(value.Result.Placements) || validateCompletionEvidence(value.Result.Evidence) != nil || validatePlacements(value.Result.Placements) != nil {
+		if value.Result == nil || value.Failure != nil || len(value.Result.Placements) == 0 || validateCompletionEvidence(value.Result.Evidence, len(value.Result.Placements)) != nil || validatePlacements(value.Result.Placements) != nil {
 			return ErrInvalidExecution
 		}
 	case LifecycleEventFailed, LifecycleEventCancelled:
-		if value.Result != nil || value.Failure == nil || value.Failure.Code == "" || validateFailureEvidence(value.Failure.Evidence) != nil {
+		if value.Result != nil || value.Failure == nil || !validCode(string(value.Failure.Code)) || value.Failure.AdjudicationCode != "" && !validCode(string(value.Failure.AdjudicationCode)) || validateFailureEvidence(value.Failure.Evidence) != nil {
 			return ErrInvalidExecution
 		}
 	default:
@@ -577,7 +590,10 @@ func ValidateExecutionEventForExecution(event ExecutionEvent, request ExecutionR
 		}
 	}
 	if artifactDigests != nil {
-		actual := event.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests
+		if event.Result.Evidence.ProfileKind != ExecutionProfileProviderExecuted || event.Result.Evidence.ProviderExecuted == nil || event.Result.Evidence.ParticipantScheduled != nil || event.Result.Evidence.ProviderExecuted.ProviderConfigurationDigest != DigestProviderConfiguration(request.Profile.ProviderExecuted.Configuration) {
+			return ErrInvalidExecution
+		}
+		actual := event.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests
 		if len(actual) != len(artifactDigests) {
 			return ErrInvalidExecution
 		}
@@ -586,22 +602,33 @@ func ValidateExecutionEventForExecution(event ExecutionEvent, request ExecutionR
 				return ErrInvalidExecution
 			}
 		}
+	} else if event.Result.Evidence.ProfileKind != ExecutionProfileParticipantScheduled || event.Result.Evidence.ProviderExecuted != nil || event.Result.Evidence.ParticipantScheduled == nil {
+		return ErrInvalidExecution
 	}
 	return nil
 }
 
-func validateCompletionEvidence(value CompletionEvidence) error {
-	if len(value.RecordedProvenance.ParticipantArtifactDigests) == 0 || !validSHA256Digest(string(value.RecordedProvenance.ProviderConfigurationDigest)) || !validSHA256Digest(string(value.RecordedProvenance.RuntimeDigest)) || !validSHA256Digest(string(value.RecordedProvenance.RulesDigest)) || !validSHA256Digest(string(value.RecordedProvenance.LimitProfileDigest)) || !validSHA256Digest(string(value.RecordedProvenance.SeedDigest)) || !validSHA256Digest(string(value.RecordedProvenance.EventLogDigest)) || !validSHA256Digest(string(value.RecordedProvenance.ExecutionPayloadDigest)) {
-		return ErrInvalidExecution
-	}
-	for _, digest := range value.RecordedProvenance.ParticipantArtifactDigests {
-		if !validSHA256Digest(string(digest)) {
+func validateCompletionEvidence(value CompletionEvidence, placementCount int) error {
+	switch value.ProfileKind {
+	case ExecutionProfileProviderExecuted:
+		if value.ProviderExecuted == nil || value.ParticipantScheduled != nil || len(value.ProviderExecuted.ParticipantArtifactDigests) != placementCount || !validSHA256Digest(string(value.ProviderExecuted.ProviderConfigurationDigest)) || !validSHA256Digest(string(value.ProviderExecuted.RuntimeDigest)) || !validSHA256Digest(string(value.ProviderExecuted.RulesDigest)) || !validSHA256Digest(string(value.ProviderExecuted.LimitProfileDigest)) || !validSHA256Digest(string(value.ProviderExecuted.SeedDigest)) || !validSHA256Digest(string(value.ProviderExecuted.EventLogDigest)) || !validSHA256Digest(string(value.ProviderExecuted.ExecutionPayloadDigest)) {
 			return ErrInvalidExecution
 		}
+		for _, digest := range value.ProviderExecuted.ParticipantArtifactDigests {
+			if !validSHA256Digest(string(digest)) {
+				return ErrInvalidExecution
+			}
+		}
+	case ExecutionProfileParticipantScheduled:
+		if value.ProviderExecuted != nil || value.ParticipantScheduled == nil {
+			return ErrInvalidExecution
+		}
+	default:
+		return ErrInvalidExecution
 	}
 	switch value.Replay.State {
 	case ReplayAvailable:
-		if value.Replay.Reference == "" {
+		if !validTypedReference(string(value.Replay.Reference), "replay:") {
 			return ErrInvalidExecution
 		}
 	case ReplayProcessing, ReplayUnavailable:
@@ -629,7 +656,7 @@ func validateFailureEvidence(value *FailureEvidence) error {
 	}
 	switch value.Replay.State {
 	case ReplayAvailable:
-		if value.Replay.Reference == "" {
+		if !validTypedReference(string(value.Replay.Reference), "replay:") {
 			return ErrInvalidExecution
 		}
 	case ReplayProcessing, ReplayUnavailable:
@@ -640,6 +667,52 @@ func validateFailureEvidence(value *FailureEvidence) error {
 		return ErrInvalidExecution
 	}
 	return nil
+}
+
+func validTypedReference(value, prefix string) bool {
+	if !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	suffix := value[len(prefix):]
+	if prefix == "safe:" {
+		const namespace = "receipt:"
+		if !strings.HasPrefix(suffix, namespace) {
+			return false
+		}
+		suffix = suffix[len(namespace):]
+	}
+	if suffix == "" || len(suffix) > 256 {
+		return false
+	}
+	for _, char := range suffix {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("-._", char) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validCode(value string) bool {
+	if value == "" || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-' || char == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validPublicArtifactReference(value PublicArtifactReference) bool {
+	text := string(value)
+	if text == "" || len(text) > 2048 || strings.ContainsAny(text, "?#\r\n\t") {
+		return false
+	}
+	parsed, err := url.ParseRequestURI(text)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.Opaque == "" && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.Path != ""
 }
 
 func ValidateLifecycleTransition(previous ExecutionState, next LifecycleEventKind) error {

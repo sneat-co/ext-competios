@@ -16,7 +16,7 @@ type ArtifactDisclosureVerificationRequestPayload struct {
 	ParticipantID                         ParticipantID              `json:"participantID"`
 	ParticipantVersionID                  ParticipantVersionID       `json:"participantVersionID"`
 	RepositoryNodeID                      string                     `json:"repositoryNodeID"`
-	Commit                                string                     `json:"commit"`
+	CommitOID                             SourceObjectID             `json:"commitOID"`
 	ClosurePlanID                         ClosurePlanID              `json:"closurePlanID"`
 	ClosurePlanDigest                     PayloadDigest              `json:"closurePlanDigest"`
 	AggregateByteLimit                    uint64                     `json:"aggregateByteLimit"`
@@ -35,7 +35,7 @@ type ArtifactDisclosureVerificationRequest struct {
 	ParticipantID                         ParticipantID              `json:"participantID"`
 	ParticipantVersionID                  ParticipantVersionID       `json:"participantVersionID"`
 	RepositoryNodeID                      string                     `json:"repositoryNodeID"`
-	Commit                                string                     `json:"commit"`
+	CommitOID                             SourceObjectID             `json:"commitOID"`
 	ClosurePlanID                         ClosurePlanID              `json:"closurePlanID"`
 	ClosurePlanDigest                     PayloadDigest              `json:"closurePlanDigest"`
 	AggregateByteLimit                    uint64                     `json:"aggregateByteLimit"`
@@ -53,7 +53,7 @@ func NewArtifactDisclosureVerificationRequest(payload ArtifactDisclosureVerifica
 	request := ArtifactDisclosureVerificationRequest{
 		ProviderID: payload.ProviderID, AdapterID: payload.AdapterID, CommandID: payload.CommandID,
 		ParticipantID: payload.ParticipantID, ParticipantVersionID: payload.ParticipantVersionID,
-		RepositoryNodeID: payload.RepositoryNodeID, Commit: payload.Commit,
+		RepositoryNodeID: payload.RepositoryNodeID, CommitOID: payload.CommitOID,
 		ClosurePlanID: payload.ClosurePlanID, ClosurePlanDigest: payload.ClosurePlanDigest,
 		AggregateByteLimit: payload.AggregateByteLimit, RetentionReceiptID: payload.RetentionReceiptID,
 		ArtifactDigest:                        payload.ArtifactDigest,
@@ -70,7 +70,7 @@ func (r ArtifactDisclosureVerificationRequest) Payload() ArtifactDisclosureVerif
 	return ArtifactDisclosureVerificationRequestPayload{
 		ProviderID: r.ProviderID, AdapterID: r.AdapterID, CommandID: r.CommandID,
 		ParticipantID: r.ParticipantID, ParticipantVersionID: r.ParticipantVersionID,
-		RepositoryNodeID: r.RepositoryNodeID, Commit: r.Commit,
+		RepositoryNodeID: r.RepositoryNodeID, CommitOID: r.CommitOID,
 		ClosurePlanID: r.ClosurePlanID, ClosurePlanDigest: r.ClosurePlanDigest,
 		AggregateByteLimit: r.AggregateByteLimit, RetentionReceiptID: r.RetentionReceiptID,
 		ArtifactDigest:                        r.ArtifactDigest,
@@ -83,7 +83,7 @@ func DigestArtifactDisclosureVerificationRequestPayload(payload ArtifactDisclosu
 }
 
 func ValidateArtifactDisclosureVerificationRequest(value ArtifactDisclosureVerificationRequest) error {
-	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || value.AggregateByteLimit == 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || !validSHA256Digest(string(value.PublicCandidateTransferredBytesDigest)) || !validSHA256Digest(string(value.TypedPayloadDigest)) {
+	if value.ProviderID == "" || value.AdapterID == "" || value.CommandID == "" || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || value.AggregateByteLimit == 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || !validSHA256Digest(string(value.PublicCandidateTransferredBytesDigest)) || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidGrant
 	}
 	digest, err := DigestArtifactDisclosureVerificationRequestPayload(value.Payload())
@@ -94,7 +94,7 @@ func ValidateArtifactDisclosureVerificationRequest(value ArtifactDisclosureVerif
 }
 
 func ValidateArtifactDisclosureInput(request ArtifactDisclosureVerificationRequest, plan ClosurePlan, transfer CandidateClosureTransfer) error {
-	if ValidateArtifactDisclosureVerificationRequest(request) != nil || ValidateClosurePlan(plan) != nil || request.ProviderID != plan.ProviderID || request.AdapterID != plan.AdapterID || request.ParticipantID != plan.ParticipantID || request.ParticipantVersionID != plan.ParticipantVersionID || request.RepositoryNodeID != plan.RepositoryNodeID || request.Commit != plan.Commit || request.ClosurePlanID != plan.ClosurePlanID || request.ClosurePlanDigest != plan.ClosurePlanDigest || request.AggregateByteLimit != plan.AggregateByteLimit {
+	if ValidateArtifactDisclosureVerificationRequest(request) != nil || ValidateClosurePlan(plan) != nil || request.ProviderID != plan.ProviderID || request.AdapterID != plan.AdapterID || request.ParticipantID != plan.ParticipantID || request.ParticipantVersionID != plan.ParticipantVersionID || request.RepositoryNodeID != plan.RepositoryNodeID || request.CommitOID != plan.CommitOID || request.ClosurePlanID != plan.ClosurePlanID || request.ClosurePlanDigest != plan.ClosurePlanDigest || request.AggregateByteLimit != plan.AggregateByteLimit {
 		return ErrInvalidGrant
 	}
 	return validateTransferAgainstPlan(plan, transfer, request.PublicCandidateTransferredBytesDigest, request.AggregateByteLimit)
@@ -127,6 +127,32 @@ func ValidateArtifactDisclosureVerificationReceiptForRequest(receipt ArtifactDis
 	}
 	switch receipt.Verdict {
 	case ArtifactDisclosureMatched, ArtifactDisclosureMismatched:
+		return nil
+	default:
+		return ErrInvalidExecution
+	}
+}
+
+// ValidateArtifactPublicationPrerequisites proves that publication follows a
+// provider-authoritative matched disclosure for the exact retained artifact.
+// A structurally valid publication request alone never authorizes publication;
+// the provider must load and validate these durable receipts first.
+func ValidateArtifactPublicationPrerequisites(publication ArtifactPublicationRequest, retention ArtifactRetentionReceipt, disclosureRequest ArtifactDisclosureVerificationRequest, disclosureReceipt ArtifactDisclosureVerificationReceipt) error {
+	if ValidateArtifactPublicationRequest(publication) != nil || validateArtifactRetentionReceipt(retention) != nil || ValidateArtifactDisclosureVerificationReceiptForRequest(disclosureReceipt, disclosureRequest) != nil || disclosureReceipt.Verdict != ArtifactDisclosureMatched {
+		return ErrInvalidExecution
+	}
+	if publication.ProviderID != retention.ProviderID || publication.AdapterID != retention.AdapterID || publication.ParticipantID != retention.ParticipantID || publication.ParticipantVersionID != retention.ParticipantVersionID || publication.RetentionReceiptID != retention.ReceiptID || publication.ArtifactDigest != retention.ArtifactDigest || publication.DisclosureReceiptID != disclosureReceipt.ReceiptID || publication.DisclosureRequestDigest != disclosureRequest.TypedPayloadDigest || disclosureRequest.ProviderID != retention.ProviderID || disclosureRequest.AdapterID != retention.AdapterID || disclosureRequest.ParticipantID != retention.ParticipantID || disclosureRequest.ParticipantVersionID != retention.ParticipantVersionID || disclosureRequest.RetentionReceiptID != retention.ReceiptID || disclosureRequest.ArtifactDigest != retention.ArtifactDigest || disclosureRequest.ClosurePlanID != retention.ClosurePlanID || disclosureRequest.ClosurePlanDigest != retention.ClosurePlanDigest || disclosureReceipt.ProviderID != retention.ProviderID || disclosureReceipt.AdapterID != retention.AdapterID || disclosureReceipt.ParticipantID != retention.ParticipantID || disclosureReceipt.ParticipantVersionID != retention.ParticipantVersionID || disclosureReceipt.RetentionReceiptID != retention.ReceiptID || disclosureReceipt.ArtifactDigest != retention.ArtifactDigest {
+		return ErrInvalidExecution
+	}
+	return nil
+}
+
+func validateArtifactRetentionReceipt(receipt ArtifactRetentionReceipt) error {
+	if receipt.ReceiptID == "" || receipt.ProviderID == "" || receipt.AdapterID == "" || receipt.CommandID == "" || receipt.ParticipantID == "" || receipt.ParticipantVersionID == "" || receipt.ClosurePlanID == "" || !validSHA256Digest(string(receipt.ClosurePlanDigest)) || !validSHA256Digest(string(receipt.CandidateRequestDigest)) || !validSHA256Digest(string(receipt.ArtifactDigest)) {
+		return ErrInvalidExecution
+	}
+	switch receipt.Status {
+	case ArtifactRetentionAccepted, ArtifactRetentionReplayed:
 		return nil
 	default:
 		return ErrInvalidExecution

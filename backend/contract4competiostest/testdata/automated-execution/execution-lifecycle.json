@@ -55,7 +55,7 @@
     "adapterID": "adapter",
     "providerInstanceID": "instance-request",
     "status": "accepted",
-    "safeReferences": ["receipt:request"]
+    "safeReferences": ["safe:receipt:request"]
   },
   "started": {
     "id": "start",
@@ -87,10 +87,11 @@
         {"slotOrdinal": 1, "entryID": "entry-b", "rank": 1, "status": "finished"}
       ],
       "evidence": {
+        "profileKind": "provider-executed",
         "replay": {"state": "available", "reference": "replay:1"},
-        "recordedProvenance": {
+        "providerExecuted": {
           "participantArtifactDigests": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
-          "providerConfigurationDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "providerConfigurationDigest": "sha256:a266af8e6d797590bd923c304c372eb0dd99eede21c9c9e7b3194851ed1f61fe",
           "runtimeDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
           "rulesDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
           "limitProfileDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -100,6 +101,6 @@
         }
       }
     },
-    "typedPayloadDigest": "sha256:c75fb5c646f3b743b418436cf4021b409eea3cdc120ca7c4d289995306237390"
+    "typedPayloadDigest": "sha256:406065d3087dc0a87593b3e1011032c90483df36959170a74deb9dcf9a89bac6"
   }
 }

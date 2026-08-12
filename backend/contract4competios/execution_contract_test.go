@@ -186,8 +186,9 @@ func completedEventPayloadFixture() ExecutionEventPayload {
 				{SlotOrdinal: 2, EntryID: "entry-c", Rank: 3, Status: PlacementStatusFinished},
 			},
 			Evidence: CompletionEvidence{
-				Replay: TerminalReplay{State: ReplayAvailable, Reference: "replay-1"},
-				RecordedProvenance: RecordedProvenance{
+				ProfileKind: ExecutionProfileProviderExecuted,
+				Replay:      TerminalReplay{State: ReplayAvailable, Reference: "replay:1"},
+				ProviderExecuted: &RecordedProvenance{
 					ParticipantArtifactDigests:  []ArtifactDigest{testArtifactDigest("a"), testArtifactDigest("b"), testArtifactDigest("c")},
 					ProviderConfigurationDigest: testArtifactDigest("d"),
 					RuntimeDigest:               testArtifactDigest("e"),
@@ -271,7 +272,8 @@ func TestCompletedEventBindsEveryFrozenRequestSlotAndArtifact(t *testing.T) {
 	}
 	payload := completedEventPayloadFixture()
 	payload.Result.Placements = payload.Result.Placements[:2]
-	payload.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests = payload.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests[:2]
+	payload.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests = payload.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests[:2]
+	payload.Result.Evidence.ProviderExecuted.ProviderConfigurationDigest = DigestProviderConfiguration(request.Profile.ProviderExecuted.Configuration)
 	event, err := NewExecutionEvent(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -289,7 +291,7 @@ func TestCompletedEventBindsEveryFrozenRequestSlotAndArtifact(t *testing.T) {
 			value.Result.Placements[0], value.Result.Placements[1] = value.Result.Placements[1], value.Result.Placements[0]
 		},
 		"wrong artifact": func(value *ExecutionEventPayload) {
-			value.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests[0] = testArtifactDigest("9")
+			value.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests[0] = testArtifactDigest("9")
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -310,6 +312,89 @@ func TestCompletedEventBindsEveryFrozenRequestSlotAndArtifact(t *testing.T) {
 				t.Fatalf("error = %v, want ErrInvalidExecution", err)
 			}
 		})
+	}
+}
+
+func TestParticipantScheduledJourneyCompletesWithoutBotProvenance(t *testing.T) {
+	request := mustExecutionRequest(t, scheduledRequestPayloadFixture())
+	receipt := ExecutionReceipt{
+		RequestID: request.ID, CommandID: request.CommandID,
+		ProviderID: request.ProviderID, AdapterID: request.AdapterID,
+		ProviderInstanceID: "scheduled-instance", Status: ReceiptAccepted,
+	}
+	event, err := NewExecutionEvent(ExecutionEventPayload{
+		ID: "scheduled-result", Kind: LifecycleEventCompleted,
+		CompetitionID: request.CompetitionID, ContestID: request.ContestID, RequestID: request.ID,
+		ProviderID: request.ProviderID, AdapterID: request.AdapterID, ProviderInstanceID: receipt.ProviderInstanceID,
+		CommandID: "scheduled-result-command", OccurredAt: contractTestTime.Add(3 * time.Hour),
+		Result: &ExecutionResult{
+			Placements: []Placement{
+				{SlotOrdinal: 0, EntryID: "team-a", Rank: 1, Status: PlacementStatusFinished},
+				{SlotOrdinal: 1, EntryID: "team-b", Rank: 1, Status: PlacementStatusFinished},
+			},
+			Evidence: CompletionEvidence{
+				ProfileKind:          ExecutionProfileParticipantScheduled,
+				Replay:               TerminalReplay{State: ReplayAvailable, Reference: "replay:scheduled-1"},
+				ParticipantScheduled: &ParticipantScheduledCompletionEvidence{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateExecutionEventForExecution(event, request, receipt); err != nil {
+		t.Fatalf("scheduled completion rejected: %v", err)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fabricated := range []string{"providerExecuted", "participantArtifactDigests", "providerConfigurationDigest", "runtimeDigest", "seedDigest"} {
+		if strings.Contains(string(encoded), fabricated) {
+			t.Fatalf("scheduled completion fabricated %q: %s", fabricated, encoded)
+		}
+	}
+}
+
+func TestTypedReferencesAndTerminalCodesFailClosed(t *testing.T) {
+	request := mustExecutionRequest(t, providerRequestPayloadFixture())
+	validReceipt := ExecutionReceipt{
+		RequestID: request.ID, CommandID: request.CommandID, ProviderID: request.ProviderID,
+		AdapterID: request.AdapterID, ProviderInstanceID: "instance-1", Status: ReceiptAccepted,
+		SafeReferences: []SafeReference{"safe:receipt:1"},
+	}
+	if err := ValidateExecutionReceiptForRequest(validReceipt, request); err != nil {
+		t.Fatalf("valid safe reference rejected: %v", err)
+	}
+	for _, unsafe := range []SafeReference{"receipt:1", "safe:", "safe:github/private-repo", "safe:has space", "safe:line\nbreak"} {
+		changed := validReceipt
+		changed.SafeReferences = []SafeReference{unsafe}
+		if err := ValidateExecutionReceiptForRequest(changed, request); !errors.Is(err, ErrInvalidExecution) {
+			t.Fatalf("safe reference %q error = %v, want ErrInvalidExecution", unsafe, err)
+		}
+	}
+
+	for _, unsafe := range []ReplayReference{"replay", "replay:", "replay:has space", "replay:line\rbreak"} {
+		payload := completedEventPayloadFixture()
+		payload.Result.Evidence.Replay.Reference = unsafe
+		if _, err := NewExecutionEvent(payload); !errors.Is(err, ErrInvalidExecution) {
+			t.Fatalf("replay reference %q error = %v, want ErrInvalidExecution", unsafe, err)
+		}
+	}
+
+	for _, code := range []FailureCode{"Provider Error", "provider_error", "9provider", "provider/error"} {
+		payload := completedEventPayloadFixture()
+		payload.Kind, payload.Result = LifecycleEventFailed, nil
+		payload.Failure = &ExecutionFailure{Code: code}
+		if _, err := NewExecutionEvent(payload); !errors.Is(err, ErrInvalidExecution) {
+			t.Fatalf("failure code %q error = %v, want ErrInvalidExecution", code, err)
+		}
+	}
+	payload := completedEventPayloadFixture()
+	payload.Kind, payload.Result = LifecycleEventFailed, nil
+	payload.Failure = &ExecutionFailure{Code: "provider-error", AdjudicationCode: "Manual Review"}
+	if _, err := NewExecutionEvent(payload); !errors.Is(err, ErrInvalidExecution) {
+		t.Fatalf("free-form adjudication error = %v, want ErrInvalidExecution", err)
 	}
 }
 
@@ -346,7 +431,7 @@ func TestSHA256IdentityFormatIsStrict(t *testing.T) {
 			}
 
 			eventPayload := completedEventPayloadFixture()
-			eventPayload.Result.Evidence.RecordedProvenance.RuntimeDigest = ArtifactDigest(malformed)
+			eventPayload.Result.Evidence.ProviderExecuted.RuntimeDigest = ArtifactDigest(malformed)
 			if _, err := NewExecutionEvent(eventPayload); !errors.Is(err, ErrInvalidExecution) {
 				t.Fatalf("malformed provenance error = %v, want ErrInvalidExecution", err)
 			}

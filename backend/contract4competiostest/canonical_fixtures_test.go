@@ -23,15 +23,16 @@ type sourceArtifactLifecycleFixture struct {
 	PlanReceipt        contract4competios.ClosurePlanReceipt                    `json:"planReceipt"`
 	CandidateRequest   contract4competios.CandidateClosureRetentionRequest      `json:"candidateRequest"`
 	RetentionReceipt   contract4competios.ArtifactRetentionReceipt              `json:"retentionReceipt"`
-	PublicationRequest contract4competios.ArtifactPublicationRequest            `json:"publicationRequest"`
-	PublicationReceipt contract4competios.ArtifactPublicationReceipt            `json:"publicationReceipt"`
 	DisclosureRequest  contract4competios.ArtifactDisclosureVerificationRequest `json:"disclosureRequest"`
 	DisclosureReceipt  contract4competios.ArtifactDisclosureVerificationReceipt `json:"disclosureReceipt"`
+	PublicationRequest contract4competios.ArtifactPublicationRequest            `json:"publicationRequest"`
+	PublicationReceipt contract4competios.ArtifactPublicationReceipt            `json:"publicationReceipt"`
 }
 
 func TestCanonicalExecutionLifecycleFixture(t *testing.T) {
 	var fixture executionLifecycleFixture
 	readFixture(t, "execution-lifecycle.json", &fixture)
+	assertExecutionFixtureDigests(t, fixture)
 	if err := contract4competios.ValidateExecutionRequest(fixture.Request); err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +69,40 @@ func TestCanonicalExecutionLifecycleFixture(t *testing.T) {
 	assertCanonicalRoundTrip(t, fixture)
 }
 
+func assertExecutionFixtureDigests(t *testing.T, fixture executionLifecycleFixture) {
+	t.Helper()
+	checks := []struct {
+		name string
+		got  contract4competios.PayloadDigest
+		want func() (contract4competios.PayloadDigest, error)
+	}{
+		{"execution request", fixture.Request.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
+			return contract4competios.DigestExecutionRequestPayload(fixture.Request.Payload())
+		}},
+		{"started event", fixture.Started.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
+			return contract4competios.DigestExecutionEventPayload(fixture.Started.Payload())
+		}},
+		{"completed event", fixture.Completed.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
+			return contract4competios.DigestExecutionEventPayload(fixture.Completed.Payload())
+		}},
+	}
+	for _, check := range checks {
+		want, err := check.want()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if check.got != want {
+			t.Fatalf("%s digest = %q, want %q", check.name, check.got, want)
+		}
+	}
+	if fixture.Request.Profile.ProviderExecuted != nil && fixture.Completed.Result != nil && fixture.Completed.Result.Evidence.ProviderExecuted != nil {
+		want := contract4competios.DigestProviderConfiguration(fixture.Request.Profile.ProviderExecuted.Configuration)
+		if got := fixture.Completed.Result.Evidence.ProviderExecuted.ProviderConfigurationDigest; got != want {
+			t.Fatalf("provider configuration digest = %q, want %q", got, want)
+		}
+	}
+}
+
 func routeFromExecutionFixture(fixture executionLifecycleFixture) contract4competios.OperationRouteBinding {
 	body, _ := json.Marshal(fixture.Request)
 	return contract4competios.OperationRouteBinding{
@@ -99,13 +134,16 @@ func TestCanonicalSourceArtifactLifecycleFixture(t *testing.T) {
 	if err := contract4competios.ValidateArtifactRetentionReceiptForRequest(fixture.RetentionReceipt, fixture.CandidateRequest); err != nil {
 		t.Fatal(err)
 	}
-	if err := contract4competios.ValidateArtifactPublicationReceiptForRequest(fixture.PublicationReceipt, fixture.PublicationRequest); err != nil {
-		t.Fatal(err)
-	}
 	if err := contract4competios.ValidateArtifactDisclosureInput(fixture.DisclosureRequest, fixture.PlanReceipt.Plan, sourceCandidateTransferFixture()); err != nil {
 		t.Fatal(err)
 	}
 	if err := contract4competios.ValidateArtifactDisclosureVerificationReceiptForRequest(fixture.DisclosureReceipt, fixture.DisclosureRequest); err != nil {
+		t.Fatal(err)
+	}
+	if err := contract4competios.ValidateArtifactPublicationPrerequisites(fixture.PublicationRequest, fixture.RetentionReceipt, fixture.DisclosureRequest, fixture.DisclosureReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := contract4competios.ValidateArtifactPublicationReceiptForRequest(fixture.PublicationReceipt, fixture.PublicationRequest); err != nil {
 		t.Fatal(err)
 	}
 	assertCanonicalRoundTrip(t, fixture)
@@ -127,11 +165,11 @@ func assertSourceFixtureDigests(t *testing.T, fixture sourceArtifactLifecycleFix
 		{"candidate request", fixture.CandidateRequest.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
 			return contract4competios.DigestCandidateClosureRetentionRequestPayload(fixture.CandidateRequest.Payload())
 		}},
-		{"publication request", fixture.PublicationRequest.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
-			return contract4competios.DigestArtifactPublicationRequestPayload(fixture.PublicationRequest.Payload())
-		}},
 		{"disclosure request", fixture.DisclosureRequest.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
 			return contract4competios.DigestArtifactDisclosureVerificationRequestPayload(fixture.DisclosureRequest.Payload())
+		}},
+		{"publication request", fixture.PublicationRequest.TypedPayloadDigest, func() (contract4competios.PayloadDigest, error) {
+			return contract4competios.DigestArtifactPublicationRequestPayload(fixture.PublicationRequest.Payload())
 		}},
 	}
 	for _, check := range checks {

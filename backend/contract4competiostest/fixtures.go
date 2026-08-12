@@ -64,6 +64,30 @@ func executionFixtureFor(game contract4competios.GameID, configVersion string, c
 	return request
 }
 
+func scheduledExecutionFixture() contract4competios.ExecutionRequest {
+	request, err := contract4competios.NewExecutionRequest(contract4competios.ExecutionRequestPayload{
+		ID: "request", ProviderID: "provider", AdapterID: "adapter",
+		CompetitionID: "cup", ContestID: "contest", CommandID: "launch-command",
+		GameID: "scheduled-table-game", RulesetVersion: "rules",
+		Profile: contract4competios.ExecutionProfile{
+			Kind: contract4competios.ExecutionProfileParticipantScheduled,
+			ParticipantScheduled: &contract4competios.ParticipantScheduledProfile{
+				StartsAt: fixtureTime.Add(time.Hour),
+				Slots: []contract4competios.ParticipantScheduledSlot{
+					{Ordinal: 0, EntryID: "entry-a", Participants: []contract4competios.ParticipantID{"person-a", "person-b"}},
+					{Ordinal: 1, EntryID: "entry-b", Participants: []contract4competios.ParticipantID{"person-c"}},
+				},
+			},
+		},
+		RequestedPublicArtifacts: []contract4competios.PublicArtifactKind{contract4competios.PublicArtifactTerminalReplay},
+		Callback:                 contract4competios.CallbackResource{Resource: "/competios/events"},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return request
+}
+
 func executionReceiptFixture(request contract4competios.ExecutionRequest, instance contract4competios.ProviderInstanceID) contract4competios.ExecutionReceipt {
 	return contract4competios.ExecutionReceipt{
 		RequestID: request.ID, CommandID: request.CommandID,
@@ -117,26 +141,60 @@ func startFixture(instance contract4competios.ProviderInstanceID) contract4compe
 }
 
 func resultFixture(instance contract4competios.ProviderInstanceID) contract4competios.ExecutionEvent {
+	return resultFixtureForRequest(executionFixture(), instance, []uint16{1, 1})
+}
+
+func resultFixtureForRequest(request contract4competios.ExecutionRequest, instance contract4competios.ProviderInstanceID, ranks []uint16) contract4competios.ExecutionEvent {
+	var entries []contract4competios.EntryID
+	var evidence contract4competios.CompletionEvidence
+	switch request.Profile.Kind {
+	case contract4competios.ExecutionProfileProviderExecuted:
+		profile := request.Profile.ProviderExecuted
+		entries = make([]contract4competios.EntryID, len(profile.Slots))
+		artifacts := make([]contract4competios.ArtifactDigest, len(profile.Slots))
+		for index, slot := range profile.Slots {
+			entries[index], artifacts[index] = slot.EntryID, slot.Participant.ArtifactDigest
+		}
+		evidence = contract4competios.CompletionEvidence{
+			ProfileKind: contract4competios.ExecutionProfileProviderExecuted,
+			Replay:      contract4competios.TerminalReplay{State: contract4competios.ReplayAvailable, Reference: "replay:1"},
+			ProviderExecuted: &contract4competios.RecordedProvenance{
+				ParticipantArtifactDigests:  artifacts,
+				ProviderConfigurationDigest: contract4competios.DigestProviderConfiguration(profile.Configuration),
+				RuntimeDigest:               artifactDigest("d"), RulesDigest: artifactDigest("e"),
+				LimitProfileDigest: artifactDigest("f"), SeedDigest: artifactDigest("0"),
+				EventLogDigest: artifactDigest("1"), ExecutionPayloadDigest: payloadDigest("2"),
+			},
+		}
+	case contract4competios.ExecutionProfileParticipantScheduled:
+		profile := request.Profile.ParticipantScheduled
+		entries = make([]contract4competios.EntryID, len(profile.Slots))
+		for index, slot := range profile.Slots {
+			entries[index] = slot.EntryID
+		}
+		evidence = contract4competios.CompletionEvidence{
+			ProfileKind:          contract4competios.ExecutionProfileParticipantScheduled,
+			Replay:               contract4competios.TerminalReplay{State: contract4competios.ReplayAvailable, Reference: "replay:scheduled-1"},
+			ParticipantScheduled: &contract4competios.ParticipantScheduledCompletionEvidence{},
+		}
+	default:
+		panic("unsupported execution profile")
+	}
+	if len(ranks) != len(entries) {
+		panic("rank count does not match slots")
+	}
+	placements := make([]contract4competios.Placement, len(entries))
+	for index, entry := range entries {
+		placements[index] = contract4competios.Placement{SlotOrdinal: uint16(index), EntryID: entry, Rank: ranks[index], Status: contract4competios.PlacementStatusFinished}
+	}
 	event, err := contract4competios.NewExecutionEvent(contract4competios.ExecutionEventPayload{
 		ID: "result", Kind: contract4competios.LifecycleEventCompleted,
-		CompetitionID: "cup", ContestID: "contest", RequestID: "request",
-		ProviderID: "provider", AdapterID: "adapter", ProviderInstanceID: instance,
+		CompetitionID: request.CompetitionID, ContestID: request.ContestID, RequestID: request.ID,
+		ProviderID: request.ProviderID, AdapterID: request.AdapterID, ProviderInstanceID: instance,
 		CommandID: "result-command", OccurredAt: fixtureTime.Add(2 * time.Minute),
 		Result: &contract4competios.ExecutionResult{
-			Placements: []contract4competios.Placement{
-				{SlotOrdinal: 0, EntryID: "entry-a", Rank: 1, Status: contract4competios.PlacementStatusFinished},
-				{SlotOrdinal: 1, EntryID: "entry-b", Rank: 1, Status: contract4competios.PlacementStatusFinished},
-			},
-			Evidence: contract4competios.CompletionEvidence{
-				Replay: contract4competios.TerminalReplay{State: contract4competios.ReplayAvailable, Reference: "replay:1"},
-				RecordedProvenance: contract4competios.RecordedProvenance{
-					ParticipantArtifactDigests:  []contract4competios.ArtifactDigest{artifactDigest("a"), artifactDigest("b")},
-					ProviderConfigurationDigest: artifactDigest("c"), RuntimeDigest: artifactDigest("d"),
-					RulesDigest: artifactDigest("e"), LimitProfileDigest: artifactDigest("f"),
-					SeedDigest: artifactDigest("0"), EventLogDigest: artifactDigest("1"),
-					ExecutionPayloadDigest: payloadDigest("2"),
-				},
-			},
+			Placements: placements,
+			Evidence:   evidence,
 		},
 	})
 	if err != nil {

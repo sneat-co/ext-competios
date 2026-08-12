@@ -28,6 +28,9 @@ func (p *referenceProvider) LaunchExecution(_ context.Context, grant contract4co
 	if p.launches == nil {
 		p.launches = map[contract4competios.CommandID]storedLaunch{}
 	}
+	if request.ProviderID != "provider" || request.AdapterID != "adapter" {
+		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
+	}
 	if prior, exists := p.launches[request.CommandID]; exists {
 		if prior.digest != request.TypedPayloadDigest {
 			return contract4competios.ExecutionReceipt{}, contract4competios.ErrCommandConflict
@@ -36,13 +39,10 @@ func (p *referenceProvider) LaunchExecution(_ context.Context, grant contract4co
 		replay.Status = contract4competios.ReceiptReplayed
 		return replay, nil
 	}
-	if request.ProviderID != "provider" || request.AdapterID != "adapter" {
-		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
-	}
 	receipt := contract4competios.ExecutionReceipt{
 		RequestID: request.ID, CommandID: request.CommandID, ProviderID: request.ProviderID,
 		AdapterID: request.AdapterID, ProviderInstanceID: contract4competios.ProviderInstanceID("instance-" + request.ID),
-		Status: contract4competios.ReceiptAccepted, SafeReferences: []string{"receipt:" + string(request.ID)},
+		Status: contract4competios.ReceiptAccepted, SafeReferences: []contract4competios.SafeReference{"safe:receipt:" + contract4competios.SafeReference(request.ID)},
 	}
 	p.launches[request.CommandID] = storedLaunch{digest: request.TypedPayloadDigest, receipt: receipt}
 	return receipt, nil
@@ -55,6 +55,69 @@ type biddingTicTacToeProvider struct {
 	digests  map[contract4competios.CommandID]contract4competios.PayloadDigest
 }
 
+func (p *biddingTicTacToeProvider) LifecycleEvents(_ context.Context, request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) (contract4competios.ExecutionEvent, contract4competios.ExecutionEvent, error) {
+	var policy struct {
+		OpeningBid int `json:"openingBid"`
+	}
+	if request.Profile.ProviderExecuted == nil || json.Unmarshal(request.Profile.ProviderExecuted.Configuration.Data, &policy) != nil || policy.OpeningBid != 2 {
+		return contract4competios.ExecutionEvent{}, contract4competios.ExecutionEvent{}, errors.New("invalid sealed bid policy")
+	}
+	return startFixture(receipt.ProviderInstanceID), resultFixtureForRequest(request, receipt.ProviderInstanceID, []uint16{1, 2}), nil
+}
+
+type chessJourneyProvider struct{ referenceProvider }
+
+func (p *chessJourneyProvider) LifecycleEvents(_ context.Context, request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) (contract4competios.ExecutionEvent, contract4competios.ExecutionEvent, error) {
+	if request.GameID != "chess-raiders" || request.Profile.ProviderExecuted == nil || request.Profile.ProviderExecuted.Configuration.Version != "chess-provider-v1" {
+		return contract4competios.ExecutionEvent{}, contract4competios.ExecutionEvent{}, errors.New("invalid Chess execution profile")
+	}
+	return startFixture(receipt.ProviderInstanceID), resultFixtureForRequest(request, receipt.ProviderInstanceID, []uint16{1, 1}), nil
+}
+
+type threeSlotJourneyProvider struct{ referenceProvider }
+
+func (p *threeSlotJourneyProvider) LifecycleEvents(_ context.Context, request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) (contract4competios.ExecutionEvent, contract4competios.ExecutionEvent, error) {
+	if request.GameID != "three-slot-game" || request.Profile.ProviderExecuted == nil || len(request.Profile.ProviderExecuted.Slots) != 3 {
+		return contract4competios.ExecutionEvent{}, contract4competios.ExecutionEvent{}, errors.New("invalid three-slot execution profile")
+	}
+	return startFixture(receipt.ProviderInstanceID), resultFixtureForRequest(request, receipt.ProviderInstanceID, []uint16{1, 1, 3}), nil
+}
+
+type scheduledJourneyProvider struct{ referenceProvider }
+
+func (p *scheduledJourneyProvider) LifecycleEvents(_ context.Context, request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) (contract4competios.ExecutionEvent, contract4competios.ExecutionEvent, error) {
+	if request.Profile.ParticipantScheduled == nil || request.Profile.ProviderExecuted != nil {
+		return contract4competios.ExecutionEvent{}, contract4competios.ExecutionEvent{}, errors.New("invalid participant-scheduled execution profile")
+	}
+	return startFixture(receipt.ProviderInstanceID), resultFixtureForRequest(request, receipt.ProviderInstanceID, []uint16{1, 1}), nil
+}
+
+type leakyJourneyProvider struct {
+	referenceProvider
+	diagnostics []string
+}
+
+func (p *leakyJourneyProvider) LaunchExecution(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
+	receipt, err := p.referenceProvider.LaunchExecution(ctx, grant, request)
+	if err != nil {
+		p.diagnostics = append(p.diagnostics, "rejected "+privateDiagnosticCanary)
+		return contract4competios.ExecutionReceipt{}, fmt.Errorf("launch rejection included %s", privateDiagnosticCanary)
+	}
+	receipt.SafeReferences = append(receipt.SafeReferences, contract4competios.SafeReference("safe:receipt:"+privateDiagnosticCanary))
+	return receipt, nil
+}
+
+func (p *leakyJourneyProvider) LifecycleEvents(_ context.Context, request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) (contract4competios.ExecutionEvent, contract4competios.ExecutionEvent, error) {
+	terminalPayload := copyEventPayload(resultFixtureForRequest(request, receipt.ProviderInstanceID, []uint16{1, 1}))
+	terminalPayload.Result.Evidence.Replay.Reference = contract4competios.ReplayReference("replay:" + privateDiagnosticCanary)
+	terminal, err := contract4competios.NewExecutionEvent(terminalPayload)
+	return startFixture(receipt.ProviderInstanceID), terminal, err
+}
+
+func (p *leakyJourneyProvider) ObservedDiagnostics() []string {
+	return append([]string(nil), p.diagnostics...)
+}
+
 func (p *biddingTicTacToeProvider) LaunchExecution(_ context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
 	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateExecutionRequest(request) != nil || contract4competios.ValidateLaunchGrantForRequest(grant, launchRouteFixture(request), request) != nil {
 		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
@@ -63,6 +126,9 @@ func (p *biddingTicTacToeProvider) LaunchExecution(_ context.Context, grant cont
 		p.receipts = map[contract4competios.CommandID]contract4competios.ExecutionReceipt{}
 		p.digests = map[contract4competios.CommandID]contract4competios.PayloadDigest{}
 	}
+	if request.ProviderID != "provider" || request.AdapterID != "adapter" {
+		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
+	}
 	if prior, exists := p.receipts[request.CommandID]; exists {
 		if p.digests[request.CommandID] != request.TypedPayloadDigest {
 			return contract4competios.ExecutionReceipt{}, contract4competios.ErrCommandConflict
@@ -70,7 +136,7 @@ func (p *biddingTicTacToeProvider) LaunchExecution(_ context.Context, grant cont
 		prior.Status = contract4competios.ReceiptReplayed
 		return prior, nil
 	}
-	if request.ProviderID != "provider" || request.AdapterID != "adapter" || request.GameID != "bidding-tic-tac-toe" || request.Profile.ProviderExecuted == nil || request.Profile.ProviderExecuted.Configuration.Version != "sealed-bid-policy" {
+	if request.GameID != "bidding-tic-tac-toe" || request.Profile.ProviderExecuted == nil || request.Profile.ProviderExecuted.Configuration.Version != "sealed-bid-policy" {
 		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
 	}
 	receipt := contract4competios.ExecutionReceipt{
@@ -86,6 +152,22 @@ type unsafeProvider struct{}
 
 func (unsafeProvider) LaunchExecution(_ context.Context, _ contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
 	return contract4competios.ExecutionReceipt{RequestID: request.ID, ProviderInstanceID: "new-every-time", Status: contract4competios.ReceiptAccepted}, nil
+}
+
+type poisonOnRejectProvider struct {
+	delegate referenceProvider
+	poisoned bool
+}
+
+func (p *poisonOnRejectProvider) LaunchExecution(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
+	if p.poisoned {
+		return contract4competios.ExecutionReceipt{}, errors.New("provider state poisoned by a prior rejection")
+	}
+	receipt, err := p.delegate.LaunchExecution(ctx, grant, request)
+	if err != nil {
+		p.poisoned = true
+	}
+	return receipt, err
 }
 
 type storedEvent struct {
@@ -107,14 +189,14 @@ func (s *referenceEventSink) SubmitExecutionEvent(_ context.Context, grant contr
 	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateExecutionEvent(event) != nil || contract4competios.ValidateEventGrantForEvent(grant, eventRouteFixture(event), event) != nil {
 		return contract4competios.EventAcknowledgement{}, contract4competios.ErrInvalidGrant
 	}
+	if contract4competios.ValidateExecutionEventForExecution(event, s.request, s.receipt) != nil {
+		return contract4competios.EventAcknowledgement{}, contract4competios.ErrInvalidGrant
+	}
 	if prior, exists := s.events[event.CommandID]; exists {
 		if prior.digest != event.TypedPayloadDigest {
 			return contract4competios.EventAcknowledgement{}, contract4competios.ErrCommandConflict
 		}
 		return contract4competios.EventAcknowledgement{Status: contract4competios.EventAcknowledgementReplayed}, nil
-	}
-	if contract4competios.ValidateExecutionEventForExecution(event, s.request, s.receipt) != nil {
-		return contract4competios.EventAcknowledgement{}, contract4competios.ErrInvalidGrant
 	}
 	if err := contract4competios.ValidateLifecycleTransition(s.state, event.Kind); err != nil {
 		return contract4competios.EventAcknowledgement{}, err
@@ -145,6 +227,22 @@ func (unsafeEventSink) SubmitExecutionEvent(context.Context, contract4competios.
 	return contract4competios.EventAcknowledgement{Status: contract4competios.EventAcknowledgementAccepted}, nil
 }
 
+type poisonOnRejectEventSink struct {
+	delegate *referenceEventSink
+	poisoned bool
+}
+
+func (s *poisonOnRejectEventSink) SubmitExecutionEvent(ctx context.Context, grant contract4competios.VerifiedOperationGrant, event contract4competios.ExecutionEvent) (contract4competios.EventAcknowledgement, error) {
+	if s.poisoned {
+		return contract4competios.EventAcknowledgement{}, errors.New("event state poisoned by a prior rejection")
+	}
+	ack, err := s.delegate.SubmitExecutionEvent(ctx, grant, event)
+	if err != nil {
+		s.poisoned = true
+	}
+	return ack, err
+}
+
 type referenceVerifier struct {
 	registry map[contract4competios.EncodedAccessToken]contract4competios.OperationGrant
 	seen     map[string]contract4competios.OperationGrant
@@ -160,7 +258,9 @@ func (v *referenceVerifier) VerifyOperationGrant(_ context.Context, token contra
 	}
 	now := fixtureTime.Add(2 * time.Minute)
 	allowedKey := claims.KeyID == "key-a" || claims.KeyID == "key-rotated"
-	if contract4competios.ValidateOperationGrant(claims) != nil || claims.Issuer != fixtureIssuer || claims.Subject != fixtureSubject || claims.Audience != fixtureAudience || claims.TokenType != contract4competios.GrantTokenTypeAccessJWT || !allowedKey || now.Before(claims.NotBefore) || !now.Before(claims.ExpiresAt) {
+	trustedGameOperation := claims.Issuer == fixtureIssuer && claims.Subject == fixtureSubject && claims.Audience == fixtureAudience
+	trustedCompetiosEvent := claims.Issuer == "https://competios.example" && claims.Subject == "svc:game" && claims.Audience == "competios/events"
+	if contract4competios.ValidateOperationGrant(claims) != nil || !trustedGameOperation && !trustedCompetiosEvent || claims.TokenType != contract4competios.GrantTokenTypeAccessJWT || !allowedKey || now.Before(claims.NotBefore) || !now.Before(claims.ExpiresAt) {
 		return contract4competios.VerifiedOperationGrant{}, contract4competios.ErrInvalidGrant
 	}
 	v.seen[claims.TokenID] = claims
@@ -179,62 +279,50 @@ func (v unsafeVerifier) VerifyOperationGrant(_ context.Context, token contract4c
 }
 
 type referenceAuthority struct {
-	registry       map[contract4competios.EncodedAccessToken]contract4competios.OperationGrant
-	allowedPurpose contract4competios.GrantPurpose
-	next           int
+	registry map[contract4competios.EncodedAccessToken]contract4competios.OperationGrant
+	allowed  contract4competios.OperationGrantRequest
+	next     int
 }
 
 func (a *referenceAuthority) IssueOperationGrant(_ context.Context, request contract4competios.OperationGrantRequest) (contract4competios.IssuedOperationAccessToken, error) {
-	if contract4competios.ValidateOperationGrantRequest(request) != nil || request.Purpose != a.allowedPurpose {
+	if contract4competios.ValidateOperationGrantRequest(request) != nil || request != a.allowed {
 		return contract4competios.IssuedOperationAccessToken{}, contract4competios.ErrInvalidGrant
 	}
 	a.next++
 	token := contract4competios.EncodedAccessToken(fmt.Sprintf("opaque-issued-%d", a.next))
 	claims := grantClaimsFromRequest(request)
 	claims.TokenID = fmt.Sprintf("issued-token-%d", a.next)
+	if a.next%2 == 0 {
+		claims.KeyID = "key-rotated"
+		claims.IssuedAt, claims.NotBefore = fixtureTime.Add(time.Minute), fixtureTime.Add(time.Minute)
+	}
+	claims.ExpiresAt = fixtureTime.Add(5 * time.Minute)
 	a.registry[token] = claims
 	return contract4competios.IssuedOperationAccessToken{AccessToken: token, TokenType: claims.TokenType, ExpiresAt: claims.ExpiresAt}, nil
 }
 
 func grantClaimsFromRequest(request contract4competios.OperationGrantRequest) contract4competios.OperationGrant {
 	baseline := launchGrantFixture(executionFixture(), "issued", "key-a").Claims
+	if request.Purpose == contract4competios.GrantPurposeContestStarted || request.Purpose == contract4competios.GrantPurposeContestResultSubmit {
+		baseline = eventGrantFixture(startFixture("instance"), "issued", "key-a").Claims
+	}
 	baseline.Purpose = request.Purpose
-	baseline.Scope = scopeForPurpose(request.Purpose)
+	baseline.Scope = contract4competios.GrantScopeForPurpose(request.Purpose)
 	baseline.ProviderID, baseline.AdapterID = request.ProviderID, request.AdapterID
 	baseline.CompetitionID, baseline.ContestID, baseline.RequestID = request.CompetitionID, request.ContestID, request.RequestID
 	baseline.ProviderInstanceID, baseline.CommandID = request.ProviderInstanceID, request.CommandID
 	baseline.TypedPayloadDigest, baseline.TransportContentType = request.TypedPayloadDigest, request.TransportContentType
 	baseline.RawTransportDigest, baseline.Method, baseline.Resource = request.RawTransportDigest, request.Method, request.Resource
 	baseline.ParticipantID, baseline.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	baseline.RepositoryNodeID, baseline.Commit, baseline.ManifestPath = request.RepositoryNodeID, request.Commit, request.ManifestPath
+	baseline.RepositoryNodeID, baseline.CommitOID, baseline.ManifestPath = request.RepositoryNodeID, request.CommitOID, request.ManifestPath
 	baseline.ManifestEntryKind = request.ManifestEntryKind
 	baseline.RawManifestBytesDigest, baseline.ManifestByteLimit = request.RawManifestBytesDigest, request.ManifestByteLimit
 	baseline.ClosurePlanID, baseline.ClosurePlanDigest = request.ClosurePlanID, request.ClosurePlanDigest
 	baseline.CandidateTransferredBytesDigest = request.CandidateTransferredBytesDigest
 	baseline.PublicCandidateTransferredBytesDigest = request.PublicCandidateTransferredBytesDigest
 	baseline.AggregateByteLimit, baseline.RetentionReceiptID, baseline.ArtifactDigest = request.AggregateByteLimit, request.RetentionReceiptID, request.ArtifactDigest
+	baseline.DisclosureReceiptID, baseline.DisclosureRequestDigest = request.DisclosureReceiptID, request.DisclosureRequestDigest
 	return baseline
-}
-
-func scopeForPurpose(purpose contract4competios.GrantPurpose) contract4competios.GrantScope {
-	switch purpose {
-	case contract4competios.GrantPurposeContestLaunch:
-		return contract4competios.GrantScopeContestLaunch
-	case contract4competios.GrantPurposeContestStarted:
-		return contract4competios.GrantScopeContestStarted
-	case contract4competios.GrantPurposeContestResultSubmit:
-		return contract4competios.GrantScopeContestResultSubmit
-	case contract4competios.GrantPurposeManifestClosurePlan:
-		return contract4competios.GrantScopeManifestClosurePlan
-	case contract4competios.GrantPurposeCandidateValidateRetain:
-		return contract4competios.GrantScopeCandidateValidateRetain
-	case contract4competios.GrantPurposeArtifactPublish:
-		return contract4competios.GrantScopeArtifactPublish
-	case contract4competios.GrantPurposeArtifactDisclosureVerify:
-		return contract4competios.GrantScopeArtifactDisclosureVerify
-	default:
-		return ""
-	}
 }
 
 func TestExecutionProviderConformanceAcceptsChessShapedProvider(t *testing.T) {
@@ -250,9 +338,93 @@ func TestExecutionProviderConformanceAcceptsUnrelatedBiddingTicTacToeFake(t *tes
 	}
 }
 
+func TestExecutionProviderConformanceAcceptsParticipantScheduledProfile(t *testing.T) {
+	request := scheduledExecutionFixture()
+	if violations := CheckExecutionProviderWithRequest(func() contract4competios.ExecutionProvider { return &referenceProvider{} }, request); len(violations) != 0 {
+		t.Fatalf("participant-scheduled provider violations: %v", violations)
+	}
+}
+
 func TestExecutionProviderConformanceRejectsDeliberatelyUnsafeProvider(t *testing.T) {
 	if violations := CheckExecutionProvider(func() contract4competios.ExecutionProvider { return unsafeProvider{} }); len(violations) < 10 {
 		t.Fatalf("unsafe provider was not decisively rejected: %v", violations)
+	}
+}
+
+func TestExecutionProviderConformanceRejectsPoisonOnRejectionFake(t *testing.T) {
+	if violations := CheckExecutionProvider(func() contract4competios.ExecutionProvider { return &poisonOnRejectProvider{} }); len(violations) == 0 {
+		t.Fatal("provider that mutates state on rejection unexpectedly passed conformance")
+	}
+}
+
+func TestCompositeExecutionJourneysRemainGameNeutral(t *testing.T) {
+	tests := []struct {
+		name    string
+		factory ExecutionJourneyProviderFactory
+		request contract4competios.ExecutionRequest
+		inspect func(contract4competios.ExecutionEvent) error
+	}{
+		{
+			name:    "Chess-shaped two-slot provider",
+			factory: func() ExecutionJourneyProvider { return &chessJourneyProvider{} },
+			request: executionFixture(),
+		},
+		{
+			name:    "Bidding Tic-Tac-Toe sealed configuration",
+			factory: func() ExecutionJourneyProvider { return &biddingTicTacToeProvider{} },
+			request: executionFixtureFor("bidding-tic-tac-toe", "sealed-bid-policy", []byte(`{"openingBid":2}`), 2),
+			inspect: func(terminal contract4competios.ExecutionEvent) error {
+				if terminal.Result == nil || len(terminal.Result.Placements) != 2 || terminal.Result.Placements[0].EntryID != "entry-a" || terminal.Result.Placements[0].Rank != 1 || terminal.Result.Placements[1].Rank != 2 {
+					return fmt.Errorf("sealed bid did not determine expected result: %+v", terminal.Result)
+				}
+				return nil
+			},
+		},
+		{
+			name:    "generic three-slot tied provider",
+			factory: func() ExecutionJourneyProvider { return &threeSlotJourneyProvider{} },
+			request: executionFixtureFor("three-slot-game", "three-slot-config", []byte(`{}`), 3),
+			inspect: func(terminal contract4competios.ExecutionEvent) error {
+				if terminal.Result == nil || len(terminal.Result.Placements) != 3 || terminal.Result.Placements[0].Rank != 1 || terminal.Result.Placements[1].Rank != 1 || terminal.Result.Placements[2].Rank != 3 {
+					return fmt.Errorf("three-slot competition ranks changed: %+v", terminal.Result)
+				}
+				return nil
+			},
+		},
+		{
+			name:    "participant-scheduled human profile",
+			factory: func() ExecutionJourneyProvider { return &scheduledJourneyProvider{} },
+			request: scheduledExecutionFixture(),
+			inspect: func(terminal contract4competios.ExecutionEvent) error {
+				if terminal.Result == nil || terminal.Result.Evidence.ProfileKind != contract4competios.ExecutionProfileParticipantScheduled || terminal.Result.Evidence.ParticipantScheduled == nil || terminal.Result.Evidence.ProviderExecuted != nil {
+					return fmt.Errorf("scheduled result fabricated provider provenance: %+v", terminal.Result)
+				}
+				encoded, _ := json.Marshal(terminal)
+				if strings.Contains(string(encoded), "providerExecuted") || strings.Contains(string(encoded), "participantArtifactDigests") || strings.Contains(string(encoded), "runtimeDigest") {
+					return fmt.Errorf("scheduled public result contains provider-only evidence")
+				}
+				return nil
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if violations := CheckExecutionJourney(test.factory, test.request, test.inspect); len(violations) != 0 {
+				t.Fatalf("journey violations: %v", violations)
+			}
+		})
+	}
+}
+
+func TestCompositeJourneyRejectsOtherwiseValidPrivacyLeaks(t *testing.T) {
+	violations := CheckExecutionJourney(func() ExecutionJourneyProvider { return &leakyJourneyProvider{} }, executionFixture(), nil)
+	if len(violations) < 4 {
+		t.Fatalf("leaky receipt/replay/error/log provider was not decisively rejected: %v", violations)
+	}
+	for _, violation := range violations {
+		if strings.Contains(violation.Error(), privateDiagnosticCanary) {
+			t.Fatalf("privacy conformance echoed the private canary in its own error: %v", violation)
+		}
 	}
 }
 
@@ -260,17 +432,23 @@ func TestEventSinkConformanceAcceptsTiedThreeSlotTerminalResult(t *testing.T) {
 	request := executionFixtureFor("three-slot-game", "three-slot-config", []byte(`{}`), 3)
 	receipt := executionReceiptFixture(request, "instance")
 	start := startFixture("instance")
-	payload := copyEventPayload(resultFixture("instance"))
-	payload.Result.Placements = append(payload.Result.Placements, contract4competios.Placement{SlotOrdinal: 2, EntryID: "entry-c", Rank: 3, Status: contract4competios.PlacementStatusFinished})
-	payload.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests = append(payload.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests, artifactDigest("c"))
-	result, err := contract4competios.NewExecutionEvent(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := resultFixtureForRequest(request, "instance", []uint16{1, 1, 3})
 	if violations := CheckExecutionEventSinkWithEvents(func(request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) contract4competios.ExecutionEventSink {
 		return newReferenceEventSink(request, receipt)
 	}, request, receipt, start, result); len(violations) != 0 {
 		t.Fatalf("event sink violations: %v", violations)
+	}
+}
+
+func TestEventSinkConformanceAcceptsParticipantScheduledCompletion(t *testing.T) {
+	request := scheduledExecutionFixture()
+	receipt := executionReceiptFixture(request, "scheduled-instance")
+	start := startFixture("scheduled-instance")
+	result := resultFixtureForRequest(request, "scheduled-instance", []uint16{1, 1})
+	if violations := CheckExecutionEventSinkWithEvents(func(request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) contract4competios.ExecutionEventSink {
+		return newReferenceEventSink(request, receipt)
+	}, request, receipt, start, result); len(violations) != 0 {
+		t.Fatalf("participant-scheduled event sink violations: %v", violations)
 	}
 }
 
@@ -279,6 +457,14 @@ func TestEventSinkConformanceRejectsDeliberatelyUnsafeSink(t *testing.T) {
 		return unsafeEventSink{}
 	}); len(violations) < 10 {
 		t.Fatalf("unsafe event sink was not decisively rejected: %v", violations)
+	}
+}
+
+func TestEventSinkConformanceRejectsPoisonOnRejectionFake(t *testing.T) {
+	if violations := CheckExecutionEventSink(func(request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) contract4competios.ExecutionEventSink {
+		return &poisonOnRejectEventSink{delegate: newReferenceEventSink(request, receipt)}
+	}); len(violations) == 0 {
+		t.Fatal("event sink that mutates state on rejection unexpectedly passed conformance")
 	}
 }
 
@@ -298,9 +484,9 @@ func TestOperationGrantVerifierConformance(t *testing.T) {
 }
 
 func TestBilateralIssuerVerifierConformance(t *testing.T) {
-	factory := func() (contract4competios.OperationGrantIssuer, contract4competios.OperationGrantVerifier) {
+	factory := func(allowed contract4competios.OperationGrantRequest) (contract4competios.OperationGrantIssuer, contract4competios.OperationGrantVerifier) {
 		registry := map[contract4competios.EncodedAccessToken]contract4competios.OperationGrant{}
-		return &referenceAuthority{registry: registry, allowedPurpose: contract4competios.GrantPurposeContestLaunch}, &referenceVerifier{registry: registry, seen: map[string]contract4competios.OperationGrant{}}
+		return &referenceAuthority{registry: registry, allowed: allowed}, &referenceVerifier{registry: registry, seen: map[string]contract4competios.OperationGrant{}}
 	}
 	if violations := CheckOperationGrantAuthority(factory); len(violations) != 0 {
 		t.Fatalf("bilateral authority violations: %v", violations)

@@ -31,6 +31,12 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 	if _, err := prematureSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "premature-result-token", "key-a"), result); !errors.Is(err, contract4competios.ErrInvalidTransition) {
 		violations = append(violations, fmt.Errorf("result before start error = %v", err))
 	}
+	if ack, err := prematureSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "post-rejection-start-token", "key-a"), start); err != nil || ack.Status != contract4competios.EventAcknowledgementAccepted {
+		violations = append(violations, fmt.Errorf("valid start after rejected premature result = %+v: %v", ack, err))
+	}
+	if ack, err := prematureSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "post-rejection-result-token", "key-a"), result); err != nil || ack.Status != contract4competios.EventAcknowledgementAccepted {
+		violations = append(violations, fmt.Errorf("valid result after rejected premature result = %+v: %v", ack, err))
+	}
 
 	sink := factory(request, receipt)
 	startGrant := eventGrantFixture(start, "start-token", "key-a")
@@ -49,6 +55,12 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 	}
 
 	for name, mutate := range startEventPayloadMutations() {
+		mutationSink := factory(request, receipt)
+		baselineAck, baselineErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "start-mutation-baseline-"+name, "key-a"), start)
+		if baselineErr != nil || baselineAck.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("start %s baseline = %+v: %v", name, baselineAck, baselineErr))
+			continue
+		}
 		payload := copyEventPayload(start)
 		mutate(&payload)
 		changed, buildErr := contract4competios.NewExecutionEvent(payload)
@@ -56,16 +68,33 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 			violations = append(violations, fmt.Errorf("start %s mutation invalid: %v", name, buildErr))
 			continue
 		}
-		if _, submitErr := sink.SubmitExecutionEvent(ctx, eventGrantFixture(changed, "changed-start-"+name, "key-a"), changed); !errors.Is(submitErr, contract4competios.ErrCommandConflict) {
-			violations = append(violations, fmt.Errorf("changed start %s error = %v", name, submitErr))
+		_, submitErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(changed, "changed-start-"+name, "key-a"), changed)
+		want := contract4competios.ErrCommandConflict
+		if eventIdentityMutation(name) {
+			want = contract4competios.ErrInvalidGrant
+		}
+		if !errors.Is(submitErr, want) {
+			violations = append(violations, fmt.Errorf("changed start %s error = %v, want %v", name, submitErr, want))
+		}
+		replayed, replayErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "start-mutation-replay-"+name, "key-rotated"), start)
+		if replayErr != nil || replayed.Status != contract4competios.EventAcknowledgementReplayed {
+			violations = append(violations, fmt.Errorf("start %s exact replay after rejection = %+v: %v", name, replayed, replayErr))
+		}
+		continued, continueErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "start-mutation-result-"+name, "key-a"), result)
+		if continueErr != nil || continued.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("start %s journey after rejection = %+v: %v", name, continued, continueErr))
 		}
 	}
 
 	for name, mutate := range invalidEventGrantMutations() {
 		bad := eventGrantFixture(start, "bad-event-"+name, "key-a")
 		mutate(&bad.Claims)
-		if _, submitErr := factory(request, receipt).SubmitExecutionEvent(ctx, bad, start); submitErr == nil {
+		rejectionSink := factory(request, receipt)
+		if _, submitErr := rejectionSink.SubmitExecutionEvent(ctx, bad, start); submitErr == nil {
 			violations = append(violations, fmt.Errorf("%s event grant was accepted", name))
+		}
+		if ack, submitErr := rejectionSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "valid-after-bad-"+name, "key-a"), start); submitErr != nil || ack.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("valid start after rejected %s grant = %+v: %v", name, ack, submitErr))
 		}
 	}
 
@@ -80,7 +109,17 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 		violations = append(violations, fmt.Errorf("fresh-token result replay = %+v: %v", ack, err))
 	}
 
-	for name, mutate := range resultEventPayloadMutations() {
+	for name, mutate := range resultEventPayloadMutations(request) {
+		mutationSink := factory(request, receipt)
+		if baselineAck, baselineErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "result-mutation-start-"+name, "key-a"), start); baselineErr != nil || baselineAck.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("result %s start baseline = %+v: %v", name, baselineAck, baselineErr))
+			continue
+		}
+		baselineAck, baselineErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "result-mutation-baseline-"+name, "key-a"), result)
+		if baselineErr != nil || baselineAck.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("result %s baseline = %+v: %v", name, baselineAck, baselineErr))
+			continue
+		}
 		payload := copyEventPayload(result)
 		mutate(&payload)
 		changed, buildErr := contract4competios.NewExecutionEvent(payload)
@@ -88,19 +127,36 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 			violations = append(violations, fmt.Errorf("result %s mutation invalid: %v", name, buildErr))
 			continue
 		}
-		if _, submitErr := sink.SubmitExecutionEvent(ctx, eventGrantFixture(changed, "changed-result-"+name, "key-a"), changed); !errors.Is(submitErr, contract4competios.ErrCommandConflict) {
-			violations = append(violations, fmt.Errorf("changed result %s error = %v", name, submitErr))
+		_, submitErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(changed, "changed-result-"+name, "key-a"), changed)
+		want := contract4competios.ErrCommandConflict
+		if eventIdentityMutation(name) || resultRequestBindingMutation(name) {
+			want = contract4competios.ErrInvalidGrant
+		}
+		if !errors.Is(submitErr, want) {
+			violations = append(violations, fmt.Errorf("changed result %s error = %v, want %v", name, submitErr, want))
+		}
+		replayed, replayErr := mutationSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "result-mutation-replay-"+name, "key-rotated"), result)
+		if replayErr != nil || replayed.Status != contract4competios.EventAcknowledgementReplayed {
+			violations = append(violations, fmt.Errorf("result %s exact replay after rejection = %+v: %v", name, replayed, replayErr))
 		}
 	}
 
-	for name, mutate := range map[string]func(*contract4competios.ExecutionEventPayload){
+	boundMutations := map[string]func(*contract4competios.ExecutionEventPayload){
 		"unknown frozen entry": func(value *contract4competios.ExecutionEventPayload) {
 			value.Result.Placements[0].EntryID = "unknown-entry"
 		},
-		"wrong frozen artifact": func(value *contract4competios.ExecutionEventPayload) {
-			value.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests[0] = artifactDigest("9")
-		},
-	} {
+	}
+	if request.Profile.Kind == contract4competios.ExecutionProfileProviderExecuted {
+		boundMutations["wrong frozen artifact"] = func(value *contract4competios.ExecutionEventPayload) {
+			value.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests[0] = artifactDigest("9")
+		}
+	} else {
+		boundMutations["fabricated provider provenance"] = func(value *contract4competios.ExecutionEventPayload) {
+			providerResult := resultFixtureForRequest(executionFixture(), value.ProviderInstanceID, []uint16{1, 1})
+			value.Result.Evidence = providerResult.Result.Evidence
+		}
+	}
+	for name, mutate := range boundMutations {
 		freshSink := factory(request, receipt)
 		if _, submitErr := freshSink.SubmitExecutionEvent(ctx, eventGrantFixture(start, "bound-start-"+name, "key-a"), start); submitErr != nil {
 			violations = append(violations, fmt.Errorf("%s setup start: %v", name, submitErr))
@@ -116,6 +172,9 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 		}
 		if _, submitErr := freshSink.SubmitExecutionEvent(ctx, eventGrantFixture(changed, "bound-token-"+name, "key-a"), changed); submitErr == nil {
 			violations = append(violations, fmt.Errorf("%s was accepted", name))
+		}
+		if ack, submitErr := freshSink.SubmitExecutionEvent(ctx, eventGrantFixture(result, "valid-result-after-"+name, "key-a"), result); submitErr != nil || ack.Status != contract4competios.EventAcknowledgementAccepted {
+			violations = append(violations, fmt.Errorf("valid result after rejected %s = %+v: %v", name, ack, submitErr))
 		}
 	}
 
@@ -174,8 +233,8 @@ func startEventPayloadMutations() map[string]func(*contract4competios.ExecutionE
 	}
 }
 
-func resultEventPayloadMutations() map[string]func(*contract4competios.ExecutionEventPayload) {
-	return map[string]func(*contract4competios.ExecutionEventPayload){
+func resultEventPayloadMutations(request contract4competios.ExecutionRequest) map[string]func(*contract4competios.ExecutionEventPayload) {
+	mutations := map[string]func(*contract4competios.ExecutionEventPayload){
 		"id":          func(v *contract4competios.ExecutionEventPayload) { v.ID = "other-result" },
 		"competition": func(v *contract4competios.ExecutionEventPayload) { v.CompetitionID = "other-cup" },
 		"contest":     func(v *contract4competios.ExecutionEventPayload) { v.ContestID = "other-contest" },
@@ -200,30 +259,56 @@ func resultEventPayloadMutations() map[string]func(*contract4competios.Execution
 		"replay": func(v *contract4competios.ExecutionEventPayload) {
 			v.Result.Evidence.Replay = contract4competios.TerminalReplay{State: contract4competios.ReplayProcessing}
 		},
-		"participant artifacts": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests[0] = artifactDigest("9")
-		},
-		"configuration digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.ProviderConfigurationDigest = artifactDigest("9")
-		},
-		"runtime digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.RuntimeDigest = artifactDigest("9")
-		},
-		"rules digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.RulesDigest = artifactDigest("9")
-		},
-		"limit digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.LimitProfileDigest = artifactDigest("9")
-		},
-		"seed digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.SeedDigest = artifactDigest("9")
-		},
-		"event log digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.EventLogDigest = artifactDigest("9")
-		},
-		"execution digest": func(v *contract4competios.ExecutionEventPayload) {
-			v.Result.Evidence.RecordedProvenance.ExecutionPayloadDigest = payloadDigest("9")
-		},
+	}
+	if request.Profile.Kind == contract4competios.ExecutionProfileProviderExecuted {
+		mutations["participant artifacts"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.ParticipantArtifactDigests[0] = artifactDigest("9")
+		}
+		mutations["configuration digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.ProviderConfigurationDigest = artifactDigest("9")
+		}
+		mutations["runtime digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.RuntimeDigest = artifactDigest("9")
+		}
+		mutations["rules digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.RulesDigest = artifactDigest("9")
+		}
+		mutations["limit digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.LimitProfileDigest = artifactDigest("9")
+		}
+		mutations["seed digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.SeedDigest = artifactDigest("9")
+		}
+		mutations["event log digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.EventLogDigest = artifactDigest("9")
+		}
+		mutations["execution digest"] = func(v *contract4competios.ExecutionEventPayload) {
+			v.Result.Evidence.ProviderExecuted.ExecutionPayloadDigest = payloadDigest("9")
+		}
+	} else {
+		mutations["profile evidence"] = func(v *contract4competios.ExecutionEventPayload) {
+			providerResult := resultFixtureForRequest(executionFixture(), v.ProviderInstanceID, []uint16{1, 1})
+			v.Result.Evidence = providerResult.Result.Evidence
+		}
+	}
+	return mutations
+}
+
+func eventIdentityMutation(name string) bool {
+	switch name {
+	case "competition", "contest", "request", "provider", "adapter", "instance":
+		return true
+	default:
+		return false
+	}
+}
+
+func resultRequestBindingMutation(name string) bool {
+	switch name {
+	case "placement slot", "placement entry", "participant artifacts", "configuration digest", "profile evidence":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -60,8 +60,8 @@ The ext-competios backend automated-execution contract v0.1.0 contains:
 - opaque, digest-bound provider configuration and requested public artifacts;
 - not-before/deadline and callback resource facts, without a fabricated human
   schedule confirmation;
-- one execution receipt with immutable provider instance and safe artifact
-  links;
+- one execution receipt with immutable provider instance and closed-namespace,
+  opaque safe references;
 - one accepted/replayed launch receipt as the queued fact, followed only by
   started/completed/failed/cancelled lifecycle events;
 - ordered N-participant placements, ties, generic failure/adjudication facts;
@@ -100,16 +100,18 @@ retry the same command/body after an unknown outcome and that neither identity
 can be reused for a different operation.
 
 Source operations are staged and game-neutral. A manifest-plan request binds
-participant/version, repository node, full commit, canonical manifest path,
-resolver-reported regular-file kind, exact raw manifest digest/body and limit.
+participant/version, repository node, algorithm-qualified full immutable commit
+OID, canonical manifest path, resolver-reported regular-file kind, exact raw
+manifest digest/body and limit.
 The provider returns an ordered canonical-path closure plan with per-file and
 aggregate limits. A second validate-and-retain request transfers only those
 ordered candidate files with their resolver-reported kinds and exact envelope
 digest; symlinks and submodules fail before parsing or retention. The provider
 is the first authority allowed to issue the canonical artifact digest after
-acceptance. Post-deadline publish and disclosure-match operations bind that
-receipt and let the provider compare the unauthenticated public candidate with
-its retained artifact.
+acceptance. A post-deadline disclosure-match operation binds that receipt and
+lets the provider compare the unauthenticated public candidate with its
+retained artifact. Publication is authorized only after, and by exact reference
+to, the provider's matched disclosure receipt and request digest.
 
 Competios may transiently stream fixed-commit manifest/candidate bytes but does
 not retain executable bytes or calculate the canonical closure match. The game

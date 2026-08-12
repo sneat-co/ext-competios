@@ -93,7 +93,7 @@ func TestExecutionGrantsRejectEverySourceOnlyField(t *testing.T) {
 		"participant":                 func(v *OperationGrant) { v.ParticipantID = "participant" },
 		"participant version":         func(v *OperationGrant) { v.ParticipantVersionID = "version" },
 		"repository":                  func(v *OperationGrant) { v.RepositoryNodeID = "repository" },
-		"commit":                      func(v *OperationGrant) { v.Commit = "full-commit" },
+		"commit OID":                  func(v *OperationGrant) { v.CommitOID = "sha1:0123456789abcdef0123456789abcdef01234567" },
 		"manifest path":               func(v *OperationGrant) { v.ManifestPath = "bot.json" },
 		"manifest entry kind":         func(v *OperationGrant) { v.ManifestEntryKind = SourceEntryRegular },
 		"raw manifest bytes digest":   func(v *OperationGrant) { v.RawManifestBytesDigest = testArtifactDigest("1") },
@@ -122,7 +122,7 @@ func manifestRequestFixture(t *testing.T) ManifestClosurePlanRequest {
 	request, err := NewManifestClosurePlanRequest(ManifestClosurePlanRequestPayload{
 		ProviderID: "provider-1", AdapterID: "adapter-1", CommandID: "manifest-command",
 		ParticipantID: "participant-a", ParticipantVersionID: "version-a",
-		RepositoryNodeID: "repository-node-1", Commit: "0123456789abcdef0123456789abcdef01234567",
+		RepositoryNodeID: "repository-node-1", CommitOID: "sha1:0123456789abcdef0123456789abcdef01234567",
 		ManifestPath: "bots/manifest.json", ManifestEntryKind: SourceEntryRegular,
 		RawManifestBytesDigest: DigestRawManifestBytes([]byte(`{"entry":"bot.star"}`)),
 		ManifestByteLimit:      32768,
@@ -141,7 +141,7 @@ func manifestGrantFixture(t *testing.T) (ManifestClosurePlanRequest, OperationGr
 	grant.CompetitionID, grant.ContestID, grant.RequestID, grant.ProviderInstanceID = "", "", "", ""
 	grant.CommandID, grant.TypedPayloadDigest = request.CommandID, request.TypedPayloadDigest
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit = request.RepositoryNodeID, request.Commit
+	grant.RepositoryNodeID, grant.CommitOID = request.RepositoryNodeID, request.CommitOID
 	grant.ManifestPath, grant.ManifestEntryKind = request.ManifestPath, request.ManifestEntryKind
 	grant.RawManifestBytesDigest, grant.ManifestByteLimit = request.RawManifestBytesDigest, request.ManifestByteLimit
 	grant.Resource = "/providers/provider-1/closure-plans"
@@ -159,7 +159,7 @@ func candidateRequestFixture(t *testing.T) CandidateClosureRetentionRequest {
 	request, err := NewCandidateClosureRetentionRequest(CandidateClosureRetentionRequestPayload{
 		ProviderID: "provider-1", AdapterID: "adapter-1", CommandID: "candidate-command",
 		ParticipantID: "participant-a", ParticipantVersionID: "version-a",
-		RepositoryNodeID: "repository-node-1", Commit: "0123456789abcdef0123456789abcdef01234567",
+		RepositoryNodeID: "repository-node-1", CommitOID: "sha1:0123456789abcdef0123456789abcdef01234567",
 		ClosurePlanID: plan.ClosurePlanID, ClosurePlanDigest: plan.ClosurePlanDigest,
 		CandidateTransferredBytesDigest: transferDigest,
 		AggregateByteLimit:              plan.AggregateByteLimit,
@@ -176,7 +176,7 @@ func closurePlanFixture(t *testing.T) ClosurePlan {
 	plan, err := NewClosurePlan(ClosurePlanPayload{
 		ClosurePlanID: "plan-1", ProviderID: manifest.ProviderID, AdapterID: manifest.AdapterID,
 		ParticipantID: manifest.ParticipantID, ParticipantVersionID: manifest.ParticipantVersionID,
-		RepositoryNodeID: manifest.RepositoryNodeID, Commit: manifest.Commit,
+		RepositoryNodeID: manifest.RepositoryNodeID, CommitOID: manifest.CommitOID,
 		ManifestPath: manifest.ManifestPath, ManifestEntryKind: manifest.ManifestEntryKind,
 		ManifestRequestDigest:  manifest.TypedPayloadDigest,
 		RawManifestBytesDigest: manifest.RawManifestBytesDigest,
@@ -207,7 +207,7 @@ func candidateGrantFixture(t *testing.T) (CandidateClosureRetentionRequest, Oper
 	grant.CompetitionID, grant.ContestID, grant.RequestID, grant.ProviderInstanceID = "", "", "", ""
 	grant.CommandID, grant.TypedPayloadDigest = request.CommandID, request.TypedPayloadDigest
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit = request.RepositoryNodeID, request.Commit
+	grant.RepositoryNodeID, grant.CommitOID = request.RepositoryNodeID, request.CommitOID
 	grant.ClosurePlanID, grant.ClosurePlanDigest = request.ClosurePlanID, request.ClosurePlanDigest
 	grant.CandidateTransferredBytesDigest, grant.AggregateByteLimit = request.CandidateTransferredBytesDigest, request.AggregateByteLimit
 	grant.Resource = "/providers/provider-1/candidate-closures"
@@ -220,6 +220,7 @@ func publicationRequestFixture(t *testing.T) ArtifactPublicationRequest {
 		ProviderID: "provider-1", AdapterID: "adapter-1", CommandID: "publish-command",
 		ParticipantID: "participant-a", ParticipantVersionID: "version-a",
 		RetentionReceiptID: "retention-1", ArtifactDigest: testArtifactDigest("9"),
+		DisclosureReceiptID: "disclosure-1", DisclosureRequestDigest: testPayloadDigest("7"),
 	})
 	if err != nil {
 		t.Fatalf("NewArtifactPublicationRequest() error = %v", err)
@@ -236,6 +237,7 @@ func publicationGrantFixture(t *testing.T) (ArtifactPublicationRequest, Operatio
 	grant.CommandID, grant.TypedPayloadDigest = request.CommandID, request.TypedPayloadDigest
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
 	grant.RetentionReceiptID, grant.ArtifactDigest = request.RetentionReceiptID, request.ArtifactDigest
+	grant.DisclosureReceiptID, grant.DisclosureRequestDigest = request.DisclosureReceiptID, request.DisclosureRequestDigest
 	grant.Resource = "/providers/provider-1/artifacts/publish"
 	return request, grant, routeBindingForGrant(grant)
 }
@@ -276,7 +278,7 @@ func TestEveryStagedSourceGrantFactIsExactlyBound(t *testing.T) {
 		"participant":         func(value *OperationGrant) { value.ParticipantID = "other-participant" },
 		"participant version": func(value *OperationGrant) { value.ParticipantVersionID = "other-version" },
 		"repository":          func(value *OperationGrant) { value.RepositoryNodeID = "other-repository" },
-		"commit":              func(value *OperationGrant) { value.Commit = "other-commit" },
+		"commit OID":          func(value *OperationGrant) { value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567" },
 		"manifest path":       func(value *OperationGrant) { value.ManifestPath = "other/manifest.json" },
 		"manifest entry kind": func(value *OperationGrant) { value.ManifestEntryKind = SourceEntrySymlink },
 		"manifest digest":     func(value *OperationGrant) { value.RawManifestBytesDigest = testArtifactDigest("8") },
@@ -300,7 +302,7 @@ func TestEveryStagedSourceGrantFactIsExactlyBound(t *testing.T) {
 		"participant":         func(value *OperationGrant) { value.ParticipantID = "other-participant" },
 		"participant version": func(value *OperationGrant) { value.ParticipantVersionID = "other-version" },
 		"repository":          func(value *OperationGrant) { value.RepositoryNodeID = "other-repository" },
-		"commit":              func(value *OperationGrant) { value.Commit = "other-commit" },
+		"commit OID":          func(value *OperationGrant) { value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567" },
 		"plan ID":             func(value *OperationGrant) { value.ClosurePlanID = "other-plan" },
 		"plan digest":         func(value *OperationGrant) { value.ClosurePlanDigest = testPayloadDigest("8") },
 		"candidate digest":    func(value *OperationGrant) { value.CandidateTransferredBytesDigest = testArtifactDigest("8") },
@@ -325,6 +327,8 @@ func TestEveryStagedSourceGrantFactIsExactlyBound(t *testing.T) {
 		"participant version": func(value *OperationGrant) { value.ParticipantVersionID = "other-version" },
 		"retention receipt":   func(value *OperationGrant) { value.RetentionReceiptID = "other-retention" },
 		"artifact digest":     func(value *OperationGrant) { value.ArtifactDigest = testArtifactDigest("8") },
+		"disclosure receipt":  func(value *OperationGrant) { value.DisclosureReceiptID = "other-disclosure" },
+		"disclosure request":  func(value *OperationGrant) { value.DisclosureRequestDigest = testPayloadDigest("6") },
 	} {
 		t.Run("publication/"+name, func(t *testing.T) {
 			changed := publicationGrant
@@ -344,7 +348,7 @@ func TestEveryStagedSourceGrantFactIsExactlyBound(t *testing.T) {
 		"participant":             func(value *OperationGrant) { value.ParticipantID = "other-participant" },
 		"participant version":     func(value *OperationGrant) { value.ParticipantVersionID = "other-version" },
 		"repository":              func(value *OperationGrant) { value.RepositoryNodeID = "other-repository" },
-		"commit":                  func(value *OperationGrant) { value.Commit = "other-commit" },
+		"commit OID":              func(value *OperationGrant) { value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567" },
 		"plan ID":                 func(value *OperationGrant) { value.ClosurePlanID = "other-plan" },
 		"plan digest":             func(value *OperationGrant) { value.ClosurePlanDigest = testPayloadDigest("8") },
 		"public candidate digest": func(value *OperationGrant) { value.PublicCandidateTransferredBytesDigest = testArtifactDigest("8") },
@@ -395,9 +399,11 @@ func TestCanonicalArtifactAuthorityBeginsAtProviderReceipt(t *testing.T) {
 		CommandID: publication.CommandID, ParticipantID: publication.ParticipantID,
 		ParticipantVersionID:     publication.ParticipantVersionID,
 		RetentionReceiptID:       publication.RetentionReceiptID,
+		DisclosureReceiptID:      publication.DisclosureReceiptID,
+		DisclosureRequestDigest:  publication.DisclosureRequestDigest,
 		PublicationRequestDigest: publication.TypedPayloadDigest,
 		ArtifactDigest:           publication.ArtifactDigest, PublishedAt: contractTestTime,
-		PublicReference: "public-artifact-1",
+		PublicReference: "https://game.example/public/artifact-1",
 		Status:          ArtifactPublicationAccepted,
 	}
 	if err := ValidateArtifactPublicationReceiptForRequest(publicationReceipt, publication); err != nil {
@@ -522,7 +528,7 @@ func disclosureRequestFixture(t *testing.T) ArtifactDisclosureVerificationReques
 	request, err := NewArtifactDisclosureVerificationRequest(ArtifactDisclosureVerificationRequestPayload{
 		ProviderID: plan.ProviderID, AdapterID: plan.AdapterID, CommandID: "disclosure-command",
 		ParticipantID: plan.ParticipantID, ParticipantVersionID: plan.ParticipantVersionID,
-		RepositoryNodeID: plan.RepositoryNodeID, Commit: plan.Commit,
+		RepositoryNodeID: plan.RepositoryNodeID, CommitOID: plan.CommitOID,
 		ClosurePlanID: plan.ClosurePlanID, ClosurePlanDigest: plan.ClosurePlanDigest,
 		AggregateByteLimit: plan.AggregateByteLimit, RetentionReceiptID: "retention-1",
 		ArtifactDigest: testArtifactDigest("9"), PublicCandidateTransferredBytesDigest: digest,
@@ -541,7 +547,7 @@ func disclosureGrantFixture(t *testing.T) (ArtifactDisclosureVerificationRequest
 	grant.CompetitionID, grant.ContestID, grant.RequestID, grant.ProviderInstanceID = "", "", "", ""
 	grant.CommandID, grant.TypedPayloadDigest = request.CommandID, request.TypedPayloadDigest
 	grant.ParticipantID, grant.ParticipantVersionID = request.ParticipantID, request.ParticipantVersionID
-	grant.RepositoryNodeID, grant.Commit = request.RepositoryNodeID, request.Commit
+	grant.RepositoryNodeID, grant.CommitOID = request.RepositoryNodeID, request.CommitOID
 	grant.ClosurePlanID, grant.ClosurePlanDigest = request.ClosurePlanID, request.ClosurePlanDigest
 	grant.PublicCandidateTransferredBytesDigest = request.PublicCandidateTransferredBytesDigest
 	grant.AggregateByteLimit = request.AggregateByteLimit
@@ -574,6 +580,89 @@ func TestDisclosureVerificationIsProviderAuthoritativeAndExactlyBound(t *testing
 	changed.ArtifactDigest = testArtifactDigest("8")
 	if err := ValidateArtifactDisclosureGrantForRequest(VerifiedOperationGrant{Claims: grant}, route, changed); !errors.Is(err, ErrInvalidGrant) {
 		t.Fatalf("changed retained artifact error = %v, want ErrInvalidGrant", err)
+	}
+}
+
+func TestPublicationRequiresExactMatchedDisclosureAndTypedPublicReference(t *testing.T) {
+	disclosure := disclosureRequestFixture(t)
+	retention := ArtifactRetentionReceipt{
+		ReceiptID: disclosure.RetentionReceiptID, ProviderID: disclosure.ProviderID, AdapterID: disclosure.AdapterID,
+		CommandID: "candidate-command", ParticipantID: disclosure.ParticipantID, ParticipantVersionID: disclosure.ParticipantVersionID,
+		ClosurePlanID: disclosure.ClosurePlanID, ClosurePlanDigest: disclosure.ClosurePlanDigest,
+		CandidateRequestDigest: testPayloadDigest("6"), ArtifactDigest: disclosure.ArtifactDigest,
+		Status: ArtifactRetentionAccepted,
+	}
+	disclosureReceipt := ArtifactDisclosureVerificationReceipt{
+		ReceiptID: "disclosure-1", ProviderID: disclosure.ProviderID, AdapterID: disclosure.AdapterID,
+		CommandID: disclosure.CommandID, ParticipantID: disclosure.ParticipantID, ParticipantVersionID: disclosure.ParticipantVersionID,
+		RetentionReceiptID: disclosure.RetentionReceiptID, ArtifactDigest: disclosure.ArtifactDigest,
+		VerificationRequestDigest: disclosure.TypedPayloadDigest, Verdict: ArtifactDisclosureMatched, VerifiedAt: contractTestTime,
+	}
+	publication, err := NewArtifactPublicationRequest(ArtifactPublicationRequestPayload{
+		ProviderID: retention.ProviderID, AdapterID: retention.AdapterID, CommandID: "publication-command",
+		ParticipantID: retention.ParticipantID, ParticipantVersionID: retention.ParticipantVersionID,
+		RetentionReceiptID: retention.ReceiptID, ArtifactDigest: retention.ArtifactDigest,
+		DisclosureReceiptID: disclosureReceipt.ReceiptID, DisclosureRequestDigest: disclosure.TypedPayloadDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateArtifactPublicationPrerequisites(publication, retention, disclosure, disclosureReceipt); err != nil {
+		t.Fatalf("matched disclosure rejected: %v", err)
+	}
+	mismatched := disclosureReceipt
+	mismatched.Verdict = ArtifactDisclosureMismatched
+	if err := ValidateArtifactPublicationPrerequisites(publication, retention, disclosure, mismatched); !errors.Is(err, ErrInvalidExecution) {
+		t.Fatalf("mismatched disclosure error = %v, want ErrInvalidExecution", err)
+	}
+	wrongRequest := disclosure
+	wrongRequest.TypedPayloadDigest = testPayloadDigest("5")
+	if err := ValidateArtifactPublicationPrerequisites(publication, retention, wrongRequest, disclosureReceipt); !errors.Is(err, ErrInvalidExecution) {
+		t.Fatalf("wrong disclosure request digest error = %v, want ErrInvalidExecution", err)
+	}
+	for name, mutate := range map[string]func(*ArtifactDisclosureVerificationRequest){
+		"closure plan ID":     func(value *ArtifactDisclosureVerificationRequest) { value.ClosurePlanID = "other-plan" },
+		"closure plan digest": func(value *ArtifactDisclosureVerificationRequest) { value.ClosurePlanDigest = testPayloadDigest("4") },
+	} {
+		t.Run("wrong "+name, func(t *testing.T) {
+			wrongPlan := disclosure
+			mutate(&wrongPlan)
+			wrongPlan.TypedPayloadDigest, err = DigestArtifactDisclosureVerificationRequestPayload(wrongPlan.Payload())
+			if err != nil {
+				t.Fatal(err)
+			}
+			wrongPlanReceipt := disclosureReceipt
+			wrongPlanReceipt.VerificationRequestDigest = wrongPlan.TypedPayloadDigest
+			if err := ValidateArtifactPublicationPrerequisites(publication, retention, wrongPlan, wrongPlanReceipt); !errors.Is(err, ErrInvalidExecution) {
+				t.Fatalf("error = %v, want ErrInvalidExecution", err)
+			}
+		})
+	}
+
+	receipt := ArtifactPublicationReceipt{
+		ReceiptID: "publication-1", ProviderID: publication.ProviderID, AdapterID: publication.AdapterID,
+		CommandID: publication.CommandID, ParticipantID: publication.ParticipantID, ParticipantVersionID: publication.ParticipantVersionID,
+		RetentionReceiptID: publication.RetentionReceiptID, DisclosureReceiptID: publication.DisclosureReceiptID,
+		DisclosureRequestDigest: publication.DisclosureRequestDigest, PublicationRequestDigest: publication.TypedPayloadDigest,
+		ArtifactDigest: publication.ArtifactDigest, PublishedAt: contractTestTime,
+		PublicReference: "https://game.example/public/artifact-1", Status: ArtifactPublicationAccepted,
+	}
+	if err := ValidateArtifactPublicationReceiptForRequest(receipt, publication); err != nil {
+		t.Fatalf("valid public reference rejected: %v", err)
+	}
+	for _, unsafe := range []PublicArtifactReference{
+		"public-artifact-1",
+		"http://game.example/public/artifact-1",
+		"https://user@game.example/public/artifact-1",
+		"https://game.example/public/artifact-1?secret=1",
+		"https://game.example/public/artifact-1#fragment",
+		"https://game.example",
+	} {
+		changed := receipt
+		changed.PublicReference = unsafe
+		if err := ValidateArtifactPublicationReceiptForRequest(changed, publication); !errors.Is(err, ErrInvalidExecution) {
+			t.Fatalf("public reference %q error = %v, want ErrInvalidExecution", unsafe, err)
+		}
 	}
 }
 
@@ -613,10 +702,10 @@ func TestTokenPortsUseOpaqueTokensNotSelfAssertedClaims(t *testing.T) {
 
 func TestStagedSourceCanonicalDigestVectors(t *testing.T) {
 	for name, gotWant := range map[string][2]PayloadDigest{
-		"manifest":    {manifestRequestFixture(t).TypedPayloadDigest, "sha256:686978b317452498653cef02e880079e2d14f0fdc123eba4a235685b3dbba4b1"},
-		"plan":        {closurePlanFixture(t).ClosurePlanDigest, "sha256:a458f88eba9d11f0bf60595657a748962cb2272eb463dee84054a259d1ffb306"},
-		"candidate":   {candidateRequestFixture(t).TypedPayloadDigest, "sha256:b9cad84a391062c0a0008f6cd3355c61ee671fa447f558312f8a34b673b8986c"},
-		"publication": {publicationRequestFixture(t).TypedPayloadDigest, "sha256:addbfe1efccd90efbd3f205a38862733f1e453870932530f493f869244ee7b55"},
+		"manifest":    {manifestRequestFixture(t).TypedPayloadDigest, "sha256:820ab729a78d565bd5a89147bab0bf696a9d17db5e9467d899589d65147f5094"},
+		"plan":        {closurePlanFixture(t).ClosurePlanDigest, "sha256:bcd98fecd0140dd66bafa7b308ef62916f91284973e16a7ab33ec830de170747"},
+		"candidate":   {candidateRequestFixture(t).TypedPayloadDigest, "sha256:4d6dc3dbabb6ce6816589669841586e8b9f9794331ac4ffbdb3927546361e49d"},
+		"publication": {publicationRequestFixture(t).TypedPayloadDigest, "sha256:87fbac4a6abba508dfaae56c802931f41fd1cb131058be09684a3ff535ebf0ed"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if gotWant[0] != gotWant[1] {
@@ -652,6 +741,33 @@ func TestGrantPurposeScopeTokenTypeAndDigestFormats(t *testing.T) {
 			mutate(&changed)
 			if err := ValidateOperationGrant(changed); !errors.Is(err, ErrInvalidGrant) {
 				t.Fatalf("error = %v, want ErrInvalidGrant", err)
+			}
+		})
+	}
+}
+
+func TestSourceObjectIDRequiresQualifiedFullImmutableOID(t *testing.T) {
+	validSHA256 := SourceObjectID("sha256:" + strings.Repeat("a", 64))
+	payload := manifestRequestFixture(t).Payload()
+	payload.CommitOID = validSHA256
+	if _, err := NewManifestClosurePlanRequest(payload); err != nil {
+		t.Fatalf("full algorithm-qualified SHA-256 OID rejected: %v", err)
+	}
+
+	for _, malformed := range []SourceObjectID{
+		"main",
+		"refs/heads/main",
+		"0123456789abcdef0123456789abcdef01234567",
+		"sha1:0123456",
+		"sha1:0123456789abcdef0123456789abcdef0123456G",
+		SourceObjectID("sha256:" + strings.Repeat("A", 64)),
+		SourceObjectID("sha512:" + strings.Repeat("a", 128)),
+	} {
+		t.Run(string(malformed), func(t *testing.T) {
+			changed := manifestRequestFixture(t).Payload()
+			changed.CommitOID = malformed
+			if _, err := NewManifestClosurePlanRequest(changed); !errors.Is(err, ErrInvalidGrant) {
+				t.Fatalf("NewManifestClosurePlanRequest() error = %v, want ErrInvalidGrant", err)
 			}
 		})
 	}

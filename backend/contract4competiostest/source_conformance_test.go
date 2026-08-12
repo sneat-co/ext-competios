@@ -10,7 +10,13 @@ import (
 )
 
 type sourceCommandRecord struct {
-	digest contract4competios.PayloadDigest
+	purpose contract4competios.GrantPurpose
+	digest  contract4competios.PayloadDigest
+}
+
+type disclosureRecord struct {
+	request contract4competios.ArtifactDisclosureVerificationRequest
+	receipt contract4competios.ArtifactDisclosureVerificationReceipt
 }
 
 type retainedRecord struct {
@@ -20,23 +26,45 @@ type retainedRecord struct {
 }
 
 type referenceSourceProvider struct {
-	plansByID    map[contract4competios.ClosurePlanID]contract4competios.ClosurePlan
-	planCommands map[contract4competios.CommandID]contract4competios.ClosurePlanReceipt
-	candidates   map[contract4competios.CommandID]sourceCommandRecord
-	retained     map[contract4competios.ArtifactRetentionReceiptID]retainedRecord
-	publications map[contract4competios.CommandID]contract4competios.ArtifactPublicationReceipt
-	disclosures  map[contract4competios.CommandID]contract4competios.ArtifactDisclosureVerificationReceipt
+	plansByID     map[contract4competios.ClosurePlanID]contract4competios.ClosurePlan
+	planCommands  map[contract4competios.CommandID]contract4competios.ClosurePlanReceipt
+	commands      map[contract4competios.CommandID]sourceCommandRecord
+	candidates    map[contract4competios.CommandID]contract4competios.ArtifactRetentionReceipt
+	retained      map[contract4competios.ArtifactRetentionReceiptID]retainedRecord
+	publications  map[contract4competios.CommandID]contract4competios.ArtifactPublicationReceipt
+	disclosures   map[contract4competios.CommandID]disclosureRecord
+	disclosureIDs map[contract4competios.ArtifactDisclosureVerificationReceiptID]disclosureRecord
+	// allowManifestToDisclosureCollision deliberately models a partial-ledger
+	// defect so the all-pairs conformance proof has a focused negative fake.
+	allowManifestToDisclosureCollision bool
 }
 
 func newReferenceSourceProvider() *referenceSourceProvider {
 	return &referenceSourceProvider{
-		plansByID:    map[contract4competios.ClosurePlanID]contract4competios.ClosurePlan{},
-		planCommands: map[contract4competios.CommandID]contract4competios.ClosurePlanReceipt{},
-		candidates:   map[contract4competios.CommandID]sourceCommandRecord{},
-		retained:     map[contract4competios.ArtifactRetentionReceiptID]retainedRecord{},
-		publications: map[contract4competios.CommandID]contract4competios.ArtifactPublicationReceipt{},
-		disclosures:  map[contract4competios.CommandID]contract4competios.ArtifactDisclosureVerificationReceipt{},
+		plansByID:     map[contract4competios.ClosurePlanID]contract4competios.ClosurePlan{},
+		planCommands:  map[contract4competios.CommandID]contract4competios.ClosurePlanReceipt{},
+		commands:      map[contract4competios.CommandID]sourceCommandRecord{},
+		candidates:    map[contract4competios.CommandID]contract4competios.ArtifactRetentionReceipt{},
+		retained:      map[contract4competios.ArtifactRetentionReceiptID]retainedRecord{},
+		publications:  map[contract4competios.CommandID]contract4competios.ArtifactPublicationReceipt{},
+		disclosures:   map[contract4competios.CommandID]disclosureRecord{},
+		disclosureIDs: map[contract4competios.ArtifactDisclosureVerificationReceiptID]disclosureRecord{},
 	}
+}
+
+func (p *referenceSourceProvider) claimCommand(commandID contract4competios.CommandID, purpose contract4competios.GrantPurpose, digest contract4competios.PayloadDigest) (bool, error) {
+	if prior, exists := p.commands[commandID]; exists {
+		if p.allowManifestToDisclosureCollision && prior.purpose == contract4competios.GrantPurposeManifestClosurePlan && purpose == contract4competios.GrantPurposeArtifactDisclosureVerify {
+			p.commands[commandID] = sourceCommandRecord{purpose: purpose, digest: digest}
+			return false, nil
+		}
+		if prior.purpose != purpose || prior.digest != digest {
+			return false, contract4competios.ErrCommandConflict
+		}
+		return true, nil
+	}
+	p.commands[commandID] = sourceCommandRecord{purpose: purpose, digest: digest}
+	return false, nil
 }
 
 func (p *referenceSourceProvider) PlanManifestClosure(_ context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ManifestClosurePlanRequest, manifestBytes []byte) (contract4competios.ClosurePlanReceipt, error) {
@@ -44,10 +72,12 @@ func (p *referenceSourceProvider) PlanManifestClosure(_ context.Context, grant c
 	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateManifestClosurePlanGrantForRequest(grant, route, request) != nil || contract4competios.ValidateManifestClosurePlanInput(request, manifestBytes) != nil {
 		return contract4competios.ClosurePlanReceipt{}, contract4competios.ErrInvalidGrant
 	}
-	if prior, exists := p.planCommands[request.CommandID]; exists {
-		if prior.RequestPayloadDigest != request.TypedPayloadDigest {
-			return contract4competios.ClosurePlanReceipt{}, contract4competios.ErrCommandConflict
-		}
+	replayed, err := p.claimCommand(request.CommandID, contract4competios.GrantPurposeManifestClosurePlan, request.TypedPayloadDigest)
+	if err != nil {
+		return contract4competios.ClosurePlanReceipt{}, err
+	}
+	if replayed {
+		prior := p.planCommands[request.CommandID]
 		prior.Status = contract4competios.ClosurePlanReceiptReplayed
 		return prior, nil
 	}
@@ -68,17 +98,14 @@ func (p *referenceSourceProvider) ValidateAndRetainCandidate(_ context.Context, 
 	if !exists || contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateCandidateRetentionGrantForRequest(grant, route, request) != nil || contract4competios.ValidateCandidateClosureInput(request, plan, transfer) != nil {
 		return contract4competios.ArtifactRetentionReceipt{}, contract4competios.ErrInvalidGrant
 	}
-	if prior, replayed := p.candidates[request.CommandID]; replayed {
-		if prior.digest != request.TypedPayloadDigest {
-			return contract4competios.ArtifactRetentionReceipt{}, contract4competios.ErrCommandConflict
-		}
-		for _, retained := range p.retained {
-			if retained.receipt.CommandID == request.CommandID {
-				receipt := retained.receipt
-				receipt.Status = contract4competios.ArtifactRetentionReplayed
-				return receipt, nil
-			}
-		}
+	replayed, err := p.claimCommand(request.CommandID, contract4competios.GrantPurposeCandidateValidateRetain, request.TypedPayloadDigest)
+	if err != nil {
+		return contract4competios.ArtifactRetentionReceipt{}, err
+	}
+	if replayed {
+		receipt := p.candidates[request.CommandID]
+		receipt.Status = contract4competios.ArtifactRetentionReplayed
+		return receipt, nil
 	}
 	transferDigest, _ := contract4competios.DigestCandidateTransferredFiles(transfer.Files)
 	receipt := contract4competios.ArtifactRetentionReceipt{
@@ -89,7 +116,7 @@ func (p *referenceSourceProvider) ValidateAndRetainCandidate(_ context.Context, 
 		CandidateRequestDigest: request.TypedPayloadDigest, ArtifactDigest: artifactDigest("9"),
 		Status: contract4competios.ArtifactRetentionAccepted,
 	}
-	p.candidates[request.CommandID] = sourceCommandRecord{digest: request.TypedPayloadDigest}
+	p.candidates[request.CommandID] = receipt
 	p.retained[receipt.ReceiptID] = retainedRecord{receipt: receipt, transferDigest: transferDigest, plan: plan}
 	return receipt, nil
 }
@@ -99,21 +126,34 @@ func (p *referenceSourceProvider) PublishArtifact(_ context.Context, grant contr
 	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateArtifactPublicationGrantForRequest(grant, route, request) != nil {
 		return contract4competios.ArtifactPublicationReceipt{}, contract4competios.ErrInvalidGrant
 	}
-	if prior, exists := p.publications[request.CommandID]; exists {
-		if prior.PublicationRequestDigest != request.TypedPayloadDigest {
-			return contract4competios.ArtifactPublicationReceipt{}, contract4competios.ErrCommandConflict
+	if _, exists := p.commands[request.CommandID]; exists {
+		replayed, err := p.claimCommand(request.CommandID, contract4competios.GrantPurposeArtifactPublish, request.TypedPayloadDigest)
+		if err != nil {
+			return contract4competios.ArtifactPublicationReceipt{}, err
 		}
-		prior.Status = contract4competios.ArtifactPublicationReplayed
-		return prior, nil
+		if replayed {
+			prior := p.publications[request.CommandID]
+			prior.Status = contract4competios.ArtifactPublicationReplayed
+			return prior, nil
+		}
 	}
 	retained, exists := p.retained[request.RetentionReceiptID]
-	if !exists || retained.receipt.ArtifactDigest != request.ArtifactDigest || retained.receipt.ParticipantVersionID != request.ParticipantVersionID {
+	disclosed, disclosedExists := p.disclosureIDs[request.DisclosureReceiptID]
+	if !exists || !disclosedExists || contract4competios.ValidateArtifactPublicationPrerequisites(request, retained.receipt, disclosed.request, disclosed.receipt) != nil {
 		return contract4competios.ArtifactPublicationReceipt{}, contract4competios.ErrInvalidGrant
+	}
+	replayed, err := p.claimCommand(request.CommandID, contract4competios.GrantPurposeArtifactPublish, request.TypedPayloadDigest)
+	if err != nil {
+		return contract4competios.ArtifactPublicationReceipt{}, err
+	}
+	if replayed {
+		panic("unreachable publication replay without a stored command")
 	}
 	receipt := contract4competios.ArtifactPublicationReceipt{
 		ReceiptID: "publication-1", ProviderID: request.ProviderID, AdapterID: request.AdapterID,
 		CommandID: request.CommandID, ParticipantID: request.ParticipantID,
 		ParticipantVersionID: request.ParticipantVersionID, RetentionReceiptID: request.RetentionReceiptID,
+		DisclosureReceiptID: request.DisclosureReceiptID, DisclosureRequestDigest: request.DisclosureRequestDigest,
 		PublicationRequestDigest: request.TypedPayloadDigest, ArtifactDigest: request.ArtifactDigest,
 		PublishedAt: fixtureTime.Add(10 * time.Minute), PublicReference: "https://game.example/public/artifact-1",
 		Status: contract4competios.ArtifactPublicationAccepted,
@@ -128,11 +168,12 @@ func (p *referenceSourceProvider) VerifyArtifactDisclosure(_ context.Context, gr
 	if !exists || contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateArtifactDisclosureGrantForRequest(grant, route, request) != nil || contract4competios.ValidateArtifactDisclosureInput(request, retained.plan, transfer) != nil || retained.receipt.ArtifactDigest != request.ArtifactDigest {
 		return contract4competios.ArtifactDisclosureVerificationReceipt{}, contract4competios.ErrInvalidGrant
 	}
-	if prior, replayed := p.disclosures[request.CommandID]; replayed {
-		if prior.VerificationRequestDigest != request.TypedPayloadDigest {
-			return contract4competios.ArtifactDisclosureVerificationReceipt{}, contract4competios.ErrCommandConflict
-		}
-		return prior, nil
+	replayed, err := p.claimCommand(request.CommandID, contract4competios.GrantPurposeArtifactDisclosureVerify, request.TypedPayloadDigest)
+	if err != nil {
+		return contract4competios.ArtifactDisclosureVerificationReceipt{}, err
+	}
+	if replayed {
+		return p.disclosures[request.CommandID].receipt, nil
 	}
 	publicDigest, _ := contract4competios.DigestCandidateTransferredFiles(transfer.Files)
 	verdict := contract4competios.ArtifactDisclosureMismatched
@@ -147,7 +188,9 @@ func (p *referenceSourceProvider) VerifyArtifactDisclosure(_ context.Context, gr
 		VerificationRequestDigest: request.TypedPayloadDigest, Verdict: verdict,
 		VerifiedAt: fixtureTime.Add(11 * time.Minute),
 	}
-	p.disclosures[request.CommandID] = receipt
+	record := disclosureRecord{request: request, receipt: receipt}
+	p.disclosures[request.CommandID] = record
+	p.disclosureIDs[receipt.ReceiptID] = record
 	return receipt, nil
 }
 
@@ -175,6 +218,13 @@ func TestSourceArtifactProviderConformance(t *testing.T) {
 	}
 	if violations := CheckSourceArtifactProvider(func() contract4competios.SourceArtifactProvider { return unsafeSourceProvider{} }); len(violations) < 5 {
 		t.Fatalf("unsafe source provider was not decisively rejected: %v", violations)
+	}
+	if violations := CheckSourceArtifactProvider(func() contract4competios.SourceArtifactProvider {
+		provider := newReferenceSourceProvider()
+		provider.allowManifestToDisclosureCollision = true
+		return provider
+	}); len(violations) == 0 {
+		t.Fatal("provider with a non-adjacent source command ledger gap unexpectedly passed conformance")
 	}
 }
 

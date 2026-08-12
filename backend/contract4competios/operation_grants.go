@@ -32,44 +32,46 @@ const (
 // OperationGrant is a post-verification claim set. It has no bearer-token
 // field: cryptographic parsing and HTTP extraction remain in owning services.
 type OperationGrant struct {
-	Issuer                                string                     `json:"issuer"`
-	Subject                               string                     `json:"subject"`
-	Audience                              string                     `json:"audience"`
-	TokenType                             GrantTokenType             `json:"tokenType"`
-	Scope                                 GrantScope                 `json:"scope"`
-	Purpose                               GrantPurpose               `json:"purpose"`
-	KeyID                                 string                     `json:"keyID"`
-	TokenID                               string                     `json:"tokenID"`
-	IssuedAt                              time.Time                  `json:"issuedAt"`
-	NotBefore                             time.Time                  `json:"notBefore"`
-	ExpiresAt                             time.Time                  `json:"expiresAt"`
-	ProviderID                            ProviderID                 `json:"providerID"`
-	AdapterID                             AdapterID                  `json:"adapterID"`
-	CompetitionID                         CompetitionID              `json:"competitionID,omitempty"`
-	ContestID                             ContestID                  `json:"contestID,omitempty"`
-	RequestID                             ExecutionRequestID         `json:"requestID,omitempty"`
-	ProviderInstanceID                    ProviderInstanceID         `json:"providerInstanceID,omitempty"`
-	CommandID                             CommandID                  `json:"commandID"`
-	TypedPayloadDigest                    PayloadDigest              `json:"typedPayloadDigest"`
-	TransportContentType                  string                     `json:"transportContentType"`
-	RawTransportDigest                    PayloadDigest              `json:"rawTransportDigest"`
-	Method                                string                     `json:"method"`
-	Resource                              string                     `json:"resource"`
-	ParticipantID                         ParticipantID              `json:"participantID,omitempty"`
-	ParticipantVersionID                  ParticipantVersionID       `json:"participantVersionID,omitempty"`
-	RepositoryNodeID                      string                     `json:"repositoryNodeID,omitempty"`
-	Commit                                string                     `json:"commit,omitempty"`
-	ManifestPath                          string                     `json:"manifestPath,omitempty"`
-	ManifestEntryKind                     SourceEntryKind            `json:"manifestEntryKind,omitempty"`
-	RawManifestBytesDigest                ArtifactDigest             `json:"rawManifestBytesDigest,omitempty"`
-	ManifestByteLimit                     uint64                     `json:"manifestByteLimit,omitempty"`
-	ClosurePlanID                         ClosurePlanID              `json:"closurePlanID,omitempty"`
-	ClosurePlanDigest                     PayloadDigest              `json:"closurePlanDigest,omitempty"`
-	CandidateTransferredBytesDigest       ArtifactDigest             `json:"candidateTransferredBytesDigest,omitempty"`
-	PublicCandidateTransferredBytesDigest ArtifactDigest             `json:"publicCandidateTransferredBytesDigest,omitempty"`
-	AggregateByteLimit                    uint64                     `json:"aggregateByteLimit,omitempty"`
-	RetentionReceiptID                    ArtifactRetentionReceiptID `json:"retentionReceiptID,omitempty"`
-	ArtifactDigest                        ArtifactDigest             `json:"artifactDigest,omitempty"`
+	Issuer                                string                                  `json:"issuer"`
+	Subject                               string                                  `json:"subject"`
+	Audience                              string                                  `json:"audience"`
+	TokenType                             GrantTokenType                          `json:"tokenType"`
+	Scope                                 GrantScope                              `json:"scope"`
+	Purpose                               GrantPurpose                            `json:"purpose"`
+	KeyID                                 string                                  `json:"keyID"`
+	TokenID                               string                                  `json:"tokenID"`
+	IssuedAt                              time.Time                               `json:"issuedAt"`
+	NotBefore                             time.Time                               `json:"notBefore"`
+	ExpiresAt                             time.Time                               `json:"expiresAt"`
+	ProviderID                            ProviderID                              `json:"providerID"`
+	AdapterID                             AdapterID                               `json:"adapterID"`
+	CompetitionID                         CompetitionID                           `json:"competitionID,omitempty"`
+	ContestID                             ContestID                               `json:"contestID,omitempty"`
+	RequestID                             ExecutionRequestID                      `json:"requestID,omitempty"`
+	ProviderInstanceID                    ProviderInstanceID                      `json:"providerInstanceID,omitempty"`
+	CommandID                             CommandID                               `json:"commandID"`
+	TypedPayloadDigest                    PayloadDigest                           `json:"typedPayloadDigest"`
+	TransportContentType                  string                                  `json:"transportContentType"`
+	RawTransportDigest                    PayloadDigest                           `json:"rawTransportDigest"`
+	Method                                string                                  `json:"method"`
+	Resource                              string                                  `json:"resource"`
+	ParticipantID                         ParticipantID                           `json:"participantID,omitempty"`
+	ParticipantVersionID                  ParticipantVersionID                    `json:"participantVersionID,omitempty"`
+	RepositoryNodeID                      string                                  `json:"repositoryNodeID,omitempty"`
+	CommitOID                             SourceObjectID                          `json:"commitOID,omitempty"`
+	ManifestPath                          string                                  `json:"manifestPath,omitempty"`
+	ManifestEntryKind                     SourceEntryKind                         `json:"manifestEntryKind,omitempty"`
+	RawManifestBytesDigest                ArtifactDigest                          `json:"rawManifestBytesDigest,omitempty"`
+	ManifestByteLimit                     uint64                                  `json:"manifestByteLimit,omitempty"`
+	ClosurePlanID                         ClosurePlanID                           `json:"closurePlanID,omitempty"`
+	ClosurePlanDigest                     PayloadDigest                           `json:"closurePlanDigest,omitempty"`
+	CandidateTransferredBytesDigest       ArtifactDigest                          `json:"candidateTransferredBytesDigest,omitempty"`
+	PublicCandidateTransferredBytesDigest ArtifactDigest                          `json:"publicCandidateTransferredBytesDigest,omitempty"`
+	AggregateByteLimit                    uint64                                  `json:"aggregateByteLimit,omitempty"`
+	RetentionReceiptID                    ArtifactRetentionReceiptID              `json:"retentionReceiptID,omitempty"`
+	ArtifactDigest                        ArtifactDigest                          `json:"artifactDigest,omitempty"`
+	DisclosureReceiptID                   ArtifactDisclosureVerificationReceiptID `json:"disclosureReceiptID,omitempty"`
+	DisclosureRequestDigest               PayloadDigest                           `json:"disclosureRequestDigest,omitempty"`
 }
 
 type VerifiedOperationGrant struct {
@@ -84,34 +86,36 @@ type EncodedAccessToken string
 // by an authenticated client. The issuer—not the caller—selects issuer,
 // subject, audience, token type, scope, signing key, token ID and lifetime.
 type OperationGrantRequest struct {
-	Purpose                               GrantPurpose               `json:"purpose"`
-	ProviderID                            ProviderID                 `json:"providerID"`
-	AdapterID                             AdapterID                  `json:"adapterID"`
-	CompetitionID                         CompetitionID              `json:"competitionID,omitempty"`
-	ContestID                             ContestID                  `json:"contestID,omitempty"`
-	RequestID                             ExecutionRequestID         `json:"requestID,omitempty"`
-	ProviderInstanceID                    ProviderInstanceID         `json:"providerInstanceID,omitempty"`
-	CommandID                             CommandID                  `json:"commandID"`
-	TypedPayloadDigest                    PayloadDigest              `json:"typedPayloadDigest"`
-	TransportContentType                  string                     `json:"transportContentType"`
-	RawTransportDigest                    PayloadDigest              `json:"rawTransportDigest"`
-	Method                                string                     `json:"method"`
-	Resource                              string                     `json:"resource"`
-	ParticipantID                         ParticipantID              `json:"participantID,omitempty"`
-	ParticipantVersionID                  ParticipantVersionID       `json:"participantVersionID,omitempty"`
-	RepositoryNodeID                      string                     `json:"repositoryNodeID,omitempty"`
-	Commit                                string                     `json:"commit,omitempty"`
-	ManifestPath                          string                     `json:"manifestPath,omitempty"`
-	ManifestEntryKind                     SourceEntryKind            `json:"manifestEntryKind,omitempty"`
-	RawManifestBytesDigest                ArtifactDigest             `json:"rawManifestBytesDigest,omitempty"`
-	ManifestByteLimit                     uint64                     `json:"manifestByteLimit,omitempty"`
-	ClosurePlanID                         ClosurePlanID              `json:"closurePlanID,omitempty"`
-	ClosurePlanDigest                     PayloadDigest              `json:"closurePlanDigest,omitempty"`
-	CandidateTransferredBytesDigest       ArtifactDigest             `json:"candidateTransferredBytesDigest,omitempty"`
-	PublicCandidateTransferredBytesDigest ArtifactDigest             `json:"publicCandidateTransferredBytesDigest,omitempty"`
-	AggregateByteLimit                    uint64                     `json:"aggregateByteLimit,omitempty"`
-	RetentionReceiptID                    ArtifactRetentionReceiptID `json:"retentionReceiptID,omitempty"`
-	ArtifactDigest                        ArtifactDigest             `json:"artifactDigest,omitempty"`
+	Purpose                               GrantPurpose                            `json:"purpose"`
+	ProviderID                            ProviderID                              `json:"providerID"`
+	AdapterID                             AdapterID                               `json:"adapterID"`
+	CompetitionID                         CompetitionID                           `json:"competitionID,omitempty"`
+	ContestID                             ContestID                               `json:"contestID,omitempty"`
+	RequestID                             ExecutionRequestID                      `json:"requestID,omitempty"`
+	ProviderInstanceID                    ProviderInstanceID                      `json:"providerInstanceID,omitempty"`
+	CommandID                             CommandID                               `json:"commandID"`
+	TypedPayloadDigest                    PayloadDigest                           `json:"typedPayloadDigest"`
+	TransportContentType                  string                                  `json:"transportContentType"`
+	RawTransportDigest                    PayloadDigest                           `json:"rawTransportDigest"`
+	Method                                string                                  `json:"method"`
+	Resource                              string                                  `json:"resource"`
+	ParticipantID                         ParticipantID                           `json:"participantID,omitempty"`
+	ParticipantVersionID                  ParticipantVersionID                    `json:"participantVersionID,omitempty"`
+	RepositoryNodeID                      string                                  `json:"repositoryNodeID,omitempty"`
+	CommitOID                             SourceObjectID                          `json:"commitOID,omitempty"`
+	ManifestPath                          string                                  `json:"manifestPath,omitempty"`
+	ManifestEntryKind                     SourceEntryKind                         `json:"manifestEntryKind,omitempty"`
+	RawManifestBytesDigest                ArtifactDigest                          `json:"rawManifestBytesDigest,omitempty"`
+	ManifestByteLimit                     uint64                                  `json:"manifestByteLimit,omitempty"`
+	ClosurePlanID                         ClosurePlanID                           `json:"closurePlanID,omitempty"`
+	ClosurePlanDigest                     PayloadDigest                           `json:"closurePlanDigest,omitempty"`
+	CandidateTransferredBytesDigest       ArtifactDigest                          `json:"candidateTransferredBytesDigest,omitempty"`
+	PublicCandidateTransferredBytesDigest ArtifactDigest                          `json:"publicCandidateTransferredBytesDigest,omitempty"`
+	AggregateByteLimit                    uint64                                  `json:"aggregateByteLimit,omitempty"`
+	RetentionReceiptID                    ArtifactRetentionReceiptID              `json:"retentionReceiptID,omitempty"`
+	ArtifactDigest                        ArtifactDigest                          `json:"artifactDigest,omitempty"`
+	DisclosureReceiptID                   ArtifactDisclosureVerificationReceiptID `json:"disclosureReceiptID,omitempty"`
+	DisclosureRequestDigest               PayloadDigest                           `json:"disclosureRequestDigest,omitempty"`
 }
 
 type IssuedOperationAccessToken struct {
@@ -153,22 +157,22 @@ func ValidateOperationGrant(value OperationGrant) error {
 	if !validGrantPurposeScope(value.Purpose, value.Scope) {
 		return ErrInvalidGrant
 	}
-	sourceFields := value.ParticipantID != "" || value.ParticipantVersionID != "" || value.RepositoryNodeID != "" || value.Commit != "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != ""
+	sourceFields := value.ParticipantID != "" || value.ParticipantVersionID != "" || value.RepositoryNodeID != "" || value.CommitOID != "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != "" || value.DisclosureReceiptID != "" || value.DisclosureRequestDigest != ""
 	switch value.Purpose {
 	case GrantPurposeManifestClosurePlan:
-		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || value.ManifestPath == "" || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.RawManifestBytesDigest)) || value.ManifestByteLimit == 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != "" {
+		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || value.ManifestPath == "" || value.ManifestEntryKind != SourceEntryRegular || !validSHA256Digest(string(value.RawManifestBytesDigest)) || value.ManifestByteLimit == 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != "" || value.DisclosureReceiptID != "" || value.DisclosureRequestDigest != "" {
 			return ErrInvalidGrant
 		}
 	case GrantPurposeCandidateValidateRetain:
-		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || !validSHA256Digest(string(value.CandidateTransferredBytesDigest)) || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit == 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != "" {
+		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || !validSHA256Digest(string(value.CandidateTransferredBytesDigest)) || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit == 0 || value.RetentionReceiptID != "" || value.ArtifactDigest != "" || value.DisclosureReceiptID != "" || value.DisclosureRequestDigest != "" {
 			return ErrInvalidGrant
 		}
 	case GrantPurposeArtifactPublish:
-		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID != "" || value.Commit != "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) {
+		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID != "" || value.CommitOID != "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID != "" || value.ClosurePlanDigest != "" || value.CandidateTransferredBytesDigest != "" || value.PublicCandidateTransferredBytesDigest != "" || value.AggregateByteLimit != 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || value.DisclosureReceiptID == "" || !validSHA256Digest(string(value.DisclosureRequestDigest)) {
 			return ErrInvalidGrant
 		}
 	case GrantPurposeArtifactDisclosureVerify:
-		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || value.Commit == "" || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || value.CandidateTransferredBytesDigest != "" || !validSHA256Digest(string(value.PublicCandidateTransferredBytesDigest)) || value.AggregateByteLimit == 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) {
+		if hasExecutionBinding(value) || value.ParticipantID == "" || value.ParticipantVersionID == "" || value.RepositoryNodeID == "" || !validSourceObjectID(value.CommitOID) || value.ManifestPath != "" || value.ManifestEntryKind != "" || value.RawManifestBytesDigest != "" || value.ManifestByteLimit != 0 || value.ClosurePlanID == "" || !validSHA256Digest(string(value.ClosurePlanDigest)) || value.CandidateTransferredBytesDigest != "" || !validSHA256Digest(string(value.PublicCandidateTransferredBytesDigest)) || value.AggregateByteLimit == 0 || value.RetentionReceiptID == "" || !validSHA256Digest(string(value.ArtifactDigest)) || value.DisclosureReceiptID != "" || value.DisclosureRequestDigest != "" {
 			return ErrInvalidGrant
 		}
 	case GrantPurposeContestLaunch:
@@ -193,14 +197,15 @@ func (value OperationGrant) RequestedOperation() OperationGrantRequest {
 		TypedPayloadDigest: value.TypedPayloadDigest, TransportContentType: value.TransportContentType,
 		RawTransportDigest: value.RawTransportDigest, Method: value.Method, Resource: value.Resource,
 		ParticipantID: value.ParticipantID, ParticipantVersionID: value.ParticipantVersionID,
-		RepositoryNodeID: value.RepositoryNodeID, Commit: value.Commit, ManifestPath: value.ManifestPath,
+		RepositoryNodeID: value.RepositoryNodeID, CommitOID: value.CommitOID, ManifestPath: value.ManifestPath,
 		ManifestEntryKind:      value.ManifestEntryKind,
 		RawManifestBytesDigest: value.RawManifestBytesDigest, ManifestByteLimit: value.ManifestByteLimit,
 		ClosurePlanID: value.ClosurePlanID, ClosurePlanDigest: value.ClosurePlanDigest,
 		CandidateTransferredBytesDigest:       value.CandidateTransferredBytesDigest,
 		PublicCandidateTransferredBytesDigest: value.PublicCandidateTransferredBytesDigest,
 		AggregateByteLimit:                    value.AggregateByteLimit, RetentionReceiptID: value.RetentionReceiptID,
-		ArtifactDigest: value.ArtifactDigest,
+		ArtifactDigest: value.ArtifactDigest, DisclosureReceiptID: value.DisclosureReceiptID,
+		DisclosureRequestDigest: value.DisclosureRequestDigest,
 	}
 }
 
@@ -208,7 +213,7 @@ func ValidateOperationGrantRequest(value OperationGrantRequest) error {
 	now := time.Unix(1, 0).UTC()
 	grant := OperationGrant{
 		Issuer: "issuer", Subject: "subject", Audience: "audience",
-		TokenType: GrantTokenTypeAccessJWT, Scope: grantScopeForPurpose(value.Purpose), Purpose: value.Purpose,
+		TokenType: GrantTokenTypeAccessJWT, Scope: GrantScopeForPurpose(value.Purpose), Purpose: value.Purpose,
 		KeyID: "key", TokenID: "token", IssuedAt: now, NotBefore: now, ExpiresAt: now.Add(time.Minute),
 		ProviderID: value.ProviderID, AdapterID: value.AdapterID,
 		CompetitionID: value.CompetitionID, ContestID: value.ContestID, RequestID: value.RequestID,
@@ -216,20 +221,21 @@ func ValidateOperationGrantRequest(value OperationGrantRequest) error {
 		TypedPayloadDigest: value.TypedPayloadDigest, TransportContentType: value.TransportContentType,
 		RawTransportDigest: value.RawTransportDigest, Method: value.Method, Resource: value.Resource,
 		ParticipantID: value.ParticipantID, ParticipantVersionID: value.ParticipantVersionID,
-		RepositoryNodeID: value.RepositoryNodeID, Commit: value.Commit, ManifestPath: value.ManifestPath,
+		RepositoryNodeID: value.RepositoryNodeID, CommitOID: value.CommitOID, ManifestPath: value.ManifestPath,
 		ManifestEntryKind:      value.ManifestEntryKind,
 		RawManifestBytesDigest: value.RawManifestBytesDigest, ManifestByteLimit: value.ManifestByteLimit,
 		ClosurePlanID: value.ClosurePlanID, ClosurePlanDigest: value.ClosurePlanDigest,
 		CandidateTransferredBytesDigest:       value.CandidateTransferredBytesDigest,
 		PublicCandidateTransferredBytesDigest: value.PublicCandidateTransferredBytesDigest,
 		AggregateByteLimit:                    value.AggregateByteLimit, RetentionReceiptID: value.RetentionReceiptID,
-		ArtifactDigest: value.ArtifactDigest,
+		ArtifactDigest: value.ArtifactDigest, DisclosureReceiptID: value.DisclosureReceiptID,
+		DisclosureRequestDigest: value.DisclosureRequestDigest,
 	}
 	return ValidateOperationGrant(grant)
 }
 
 func ValidateIssuedOperationGrantForRequest(value OperationGrant, request OperationGrantRequest) error {
-	if ValidateOperationGrant(value) != nil || ValidateOperationGrantRequest(request) != nil || value.Scope != grantScopeForPurpose(request.Purpose) || value.RequestedOperation() != request {
+	if ValidateOperationGrant(value) != nil || ValidateOperationGrantRequest(request) != nil || value.Scope != GrantScopeForPurpose(request.Purpose) || value.RequestedOperation() != request {
 		return ErrInvalidGrant
 	}
 	return nil
@@ -240,10 +246,12 @@ func hasExecutionBinding(value OperationGrant) bool {
 }
 
 func validGrantPurposeScope(purpose GrantPurpose, scope GrantScope) bool {
-	return grantScopeForPurpose(purpose) == scope && scope != ""
+	return GrantScopeForPurpose(purpose) == scope && scope != ""
 }
 
-func grantScopeForPurpose(purpose GrantPurpose) GrantScope {
+// GrantScopeForPurpose is the single contract mapping from an operation
+// purpose to its exact OAuth scope. Unknown purposes map to the empty scope.
+func GrantScopeForPurpose(purpose GrantPurpose) GrantScope {
 	switch purpose {
 	case GrantPurposeManifestClosurePlan:
 		return GrantScopeManifestClosurePlan
@@ -293,7 +301,7 @@ func ValidateLaunchGrantForRequest(grant VerifiedOperationGrant, route Operation
 
 func ValidateManifestClosurePlanGrantForRequest(grant VerifiedOperationGrant, route OperationRouteBinding, request ManifestClosurePlanRequest) error {
 	value := grant.Claims
-	if ValidateOperationGrant(value) != nil || ValidateManifestClosurePlanRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeManifestClosurePlan || value.Scope != GrantScopeManifestClosurePlan || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.Commit != request.Commit || value.ManifestPath != request.ManifestPath || value.ManifestEntryKind != request.ManifestEntryKind || value.RawManifestBytesDigest != request.RawManifestBytesDigest || value.ManifestByteLimit != request.ManifestByteLimit {
+	if ValidateOperationGrant(value) != nil || ValidateManifestClosurePlanRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeManifestClosurePlan || value.Scope != GrantScopeManifestClosurePlan || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.CommitOID != request.CommitOID || value.ManifestPath != request.ManifestPath || value.ManifestEntryKind != request.ManifestEntryKind || value.RawManifestBytesDigest != request.RawManifestBytesDigest || value.ManifestByteLimit != request.ManifestByteLimit {
 		return ErrInvalidGrant
 	}
 	return nil
@@ -301,7 +309,7 @@ func ValidateManifestClosurePlanGrantForRequest(grant VerifiedOperationGrant, ro
 
 func ValidateCandidateRetentionGrantForRequest(grant VerifiedOperationGrant, route OperationRouteBinding, request CandidateClosureRetentionRequest) error {
 	value := grant.Claims
-	if ValidateOperationGrant(value) != nil || ValidateCandidateClosureRetentionRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeCandidateValidateRetain || value.Scope != GrantScopeCandidateValidateRetain || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.Commit != request.Commit || value.ClosurePlanID != request.ClosurePlanID || value.ClosurePlanDigest != request.ClosurePlanDigest || value.CandidateTransferredBytesDigest != request.CandidateTransferredBytesDigest || value.AggregateByteLimit != request.AggregateByteLimit {
+	if ValidateOperationGrant(value) != nil || ValidateCandidateClosureRetentionRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeCandidateValidateRetain || value.Scope != GrantScopeCandidateValidateRetain || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.CommitOID != request.CommitOID || value.ClosurePlanID != request.ClosurePlanID || value.ClosurePlanDigest != request.ClosurePlanDigest || value.CandidateTransferredBytesDigest != request.CandidateTransferredBytesDigest || value.AggregateByteLimit != request.AggregateByteLimit {
 		return ErrInvalidGrant
 	}
 	return nil
@@ -309,7 +317,7 @@ func ValidateCandidateRetentionGrantForRequest(grant VerifiedOperationGrant, rou
 
 func ValidateArtifactPublicationGrantForRequest(grant VerifiedOperationGrant, route OperationRouteBinding, request ArtifactPublicationRequest) error {
 	value := grant.Claims
-	if ValidateOperationGrant(value) != nil || ValidateArtifactPublicationRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeArtifactPublish || value.Scope != GrantScopeArtifactPublish || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RetentionReceiptID != request.RetentionReceiptID || value.ArtifactDigest != request.ArtifactDigest {
+	if ValidateOperationGrant(value) != nil || ValidateArtifactPublicationRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeArtifactPublish || value.Scope != GrantScopeArtifactPublish || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RetentionReceiptID != request.RetentionReceiptID || value.ArtifactDigest != request.ArtifactDigest || value.DisclosureReceiptID != request.DisclosureReceiptID || value.DisclosureRequestDigest != request.DisclosureRequestDigest {
 		return ErrInvalidGrant
 	}
 	return nil
@@ -317,7 +325,7 @@ func ValidateArtifactPublicationGrantForRequest(grant VerifiedOperationGrant, ro
 
 func ValidateArtifactDisclosureGrantForRequest(grant VerifiedOperationGrant, route OperationRouteBinding, request ArtifactDisclosureVerificationRequest) error {
 	value := grant.Claims
-	if ValidateOperationGrant(value) != nil || ValidateArtifactDisclosureVerificationRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeArtifactDisclosureVerify || value.Scope != GrantScopeArtifactDisclosureVerify || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.Commit != request.Commit || value.ClosurePlanID != request.ClosurePlanID || value.ClosurePlanDigest != request.ClosurePlanDigest || value.PublicCandidateTransferredBytesDigest != request.PublicCandidateTransferredBytesDigest || value.AggregateByteLimit != request.AggregateByteLimit || value.RetentionReceiptID != request.RetentionReceiptID || value.ArtifactDigest != request.ArtifactDigest {
+	if ValidateOperationGrant(value) != nil || ValidateArtifactDisclosureVerificationRequest(request) != nil || validateRoute(value, route) != nil || value.Purpose != GrantPurposeArtifactDisclosureVerify || value.Scope != GrantScopeArtifactDisclosureVerify || value.ProviderID != request.ProviderID || value.AdapterID != request.AdapterID || value.CommandID != request.CommandID || value.TypedPayloadDigest != request.TypedPayloadDigest || value.ParticipantID != request.ParticipantID || value.ParticipantVersionID != request.ParticipantVersionID || value.RepositoryNodeID != request.RepositoryNodeID || value.CommitOID != request.CommitOID || value.ClosurePlanID != request.ClosurePlanID || value.ClosurePlanDigest != request.ClosurePlanDigest || value.PublicCandidateTransferredBytesDigest != request.PublicCandidateTransferredBytesDigest || value.AggregateByteLimit != request.AggregateByteLimit || value.RetentionReceiptID != request.RetentionReceiptID || value.ArtifactDigest != request.ArtifactDigest {
 		return ErrInvalidGrant
 	}
 	return nil
