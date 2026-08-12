@@ -53,7 +53,7 @@ consumer bumps.
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:two-unrelated-providers-conform
 **Depends-On:** —
 **Status:** complete
-**Implemented-by:** 6a2bec3 (codex/bots-cup-contract-foundation)
+**Implemented-by:** 14363471680c38357b36f5e90b7abd23e390e1bb (codex/bots-cup-contract-foundation)
 **Evidence:** backend/contract4competios/contract.go, backend/contract4competios/operation_grants.go, backend/contract4competiostest/conformance.go
 
 Inventory every `LaunchRequest`, `GameLauncher`, start/result and conformance
@@ -88,7 +88,9 @@ Inventory frozen on 2026-08-12 against ext-competios backend v0.0.1:
 **Id:** task-2
 **Verifies:** automated-execution-contract#ac:provenance-round-trips-without-game-fields, automated-execution-contract#ac:lifecycle-and-result-order-fail-closed
 **Depends-On:** 1
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 14363471680c38357b36f5e90b7abd23e390e1bb (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/contract.go, backend/contract4competios/source_operations.go, backend/contract4competios/disclosure_operations.go, backend/contract4competios/execution_contract_test.go
 
 Add discriminated scheduling/execution profiles, N-slot immutable participant
 versions, request/receipt/lifecycle/result and recorded-provenance types with
@@ -101,7 +103,9 @@ provider-executed path. Freeze positive and malformed JSON fixtures.
 **Id:** task-3
 **Verifies:** automated-execution-contract#ac:launch-grant-is-one-operation, automated-execution-contract#ac:event-grant-and-command-replay-are-distinct, automated-execution-contract#ac:source-validation-and-launch-never-cross
 **Depends-On:** 1
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 14363471680c38357b36f5e90b7abd23e390e1bb (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/operation_grants.go, backend/contract4competios/operation_grants_test.go, backend/contract4competiostest/grant_conformance.go
 
 Add dependency-free trusted-grant facts and opaque-token issuer/verifier ports
 for game-issued launch, manifest-plan, validate-and-retain, disclosure-match and
@@ -117,7 +121,9 @@ OAuth, JWKS, HTTP and signing implementations outside this module.
 **Id:** task-4
 **Verifies:** automated-execution-contract#ac:two-unrelated-providers-conform, automated-execution-contract#ac:launch-grant-is-one-operation, automated-execution-contract#ac:event-grant-and-command-replay-are-distinct, automated-execution-contract#ac:source-validation-and-launch-never-cross, automated-execution-contract#ac:lifecycle-and-result-order-fail-closed
 **Depends-On:** 2, 3
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 14363471680c38357b36f5e90b7abd23e390e1bb (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competiostest/provider_conformance.go, backend/contract4competiostest/event_conformance.go, backend/contract4competiostest/source_conformance.go, backend/contract4competiostest/conformance_test.go, backend/contract4competiostest/source_conformance_test.go
 
 Run the same suite against Chess-shaped, independently implemented Bidding
 Tic-Tac-Toe and minimal three-slot tied-rank fakes. Add deliberately bad
@@ -132,7 +138,9 @@ participant fact.
 **Id:** task-5
 **Verifies:** automated-execution-contract#ac:provenance-round-trips-without-game-fields, automated-execution-contract#ac:module-remains-portable
 **Depends-On:** 2, 3, 4
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 14363471680c38357b36f5e90b7abd23e390e1bb (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competiostest/canonical_fixtures_test.go, backend/contract4competiostest/testdata/automated-execution/execution-lifecycle.json, backend/contract4competiostest/testdata/automated-execution/source-artifact-lifecycle.json, backend/go.mod, go build ./..., go vet ./..., go test -race ./...
 
 Add compile-time/API, JSON round-trip, frozen domain-separated digest and
 mutation tests. Keep `backend/go.mod` free of `require` entries and prove tests
