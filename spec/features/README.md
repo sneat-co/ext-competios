@@ -10,7 +10,7 @@ Feature specifications for this project.
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| [Automated execution contract](automated-execution-contract/README.md) | Draft | Expose a dependency-free, game-agnostic execution, lifecycle, evidence and token contract with conformance fixtures for Competios and game providers. |
+| [Automated execution contract](automated-execution-contract/README.md) | Implementing | Expose a dependency-free, game-agnostic execution, lifecycle, evidence and token contract with conformance fixtures for Competios and game providers. |
 
 ## Open Questions
 

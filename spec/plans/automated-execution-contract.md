@@ -1,10 +1,10 @@
 ---
 format: https://specscore.md/plan-specification
-status: Draft
+status: Approved
 ---
 # Plan: Automated execution contract
 
-**Status:** Draft
+**Status:** Executing
 **Source Feature:** automated-execution-contract
 **Date:** 2026-08-11
 **Owner:** alex
@@ -15,8 +15,9 @@ status: Draft
 
 Replace the provisional scheduled-lineup seam with one dependency-free,
 game-agnostic contract for participant-scheduled and provider-executed contests,
-exact-operation service grants, lifecycle/result delivery and recorded
-provenance. Publish conformance before Competios and Chess Raiders consume it.
+exact-operation service grants, staged source planning/retention/disclosure,
+lifecycle/result delivery and recorded provenance. Publish conformance before
+Competios and Chess Raiders consume it.
 This is the external-contract child of the
 [Competios cross-repository master](https://github.com/sneat-co/competios/blob/main/spec/plans/chess-raiders-bots-cup-platform.md).
 
@@ -51,7 +52,9 @@ consumer bumps.
 **Id:** task-1
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:two-unrelated-providers-conform
 **Depends-On:** —
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 1d7301e82d83b9b270a4ba5921ee87bdf739e92e (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/contract.go, backend/contract4competios/operation_grants.go, backend/contract4competiostest/conformance.go
 
 Inventory every `LaunchRequest`, `GameLauncher`, start/result and conformance
 consumer in Competios, Chess Raiders and host composition. Record canonical
@@ -59,12 +62,36 @@ JSON, time/order/digest rules and null-action, unknown-outcome, cancellation,
 conflict and adjudication sequences. Prove the proposed vocabulary represents
 both Chess Raiders and a Bidding Tic-Tac-Toe fake before changing types.
 
+Inventory frozen on 2026-08-12 against ext-competios backend v0.0.1:
+
+- `sneat-co/competios/backend` directly consumes the legacy types in
+  `competios/{contest_start_sink.go,launch.go,ports.go,result_sink.go,results.go,scheduling.go,service.go,types.go,validation.go}`;
+  its direct contract tests are
+  `api4competiosapp/organiser_operations_production_test.go`,
+  `competios/{adjudication_test.go,competition_test.go,contest_start_sink_test.go,result_sink_test.go,results_test.go,scheduling_test.go,service_external_test.go,test_helpers_test.go}`,
+  `competiostest/{ports_test.go,ruleset.go}`,
+  `dal4competios/{organiser_operations_action_family_test.go,repository_test.go,series_qualification_repository_test.go}`,
+  `production/factory_test.go` and
+  `seriesinteraction/battle_navigation_test.go`. `production/factory.go`
+  carries the indirect `GameLauncher` composition dependency.
+- `sneat-co/chessraiders` directly consumes the legacy types in
+  `server-go/facade4chess/{competition.go,types.go}` and in
+  `server-go/{dal4chess/store_test.go,facade4chess/competios_e2e_test.go,facade4chess/competition_dispatch_test.go,facade4chess/competition_tie_test.go,facade4chesstest/competition.go,series4chess/series_test.go}`.
+- `sneat-co/sneat-go/pkg/modules/competios/production_composition.go` wires the
+  old launcher/start/result ports and pins ext-competios backend v0.0.1 beside
+  the Competios and Chess Raiders backend modules.
+- `sneat-co/ext-chessraiders` and `sneat-games/chessraiders` contain no legacy
+  execution-contract consumer. The dependency order is therefore
+  `ext-competios backend v0.1.0 -> {competios backend, chessraiders} -> sneat-go`.
+
 ### Task 2: Define the generic execution and evidence contract
 
 **Id:** task-2
 **Verifies:** automated-execution-contract#ac:provenance-round-trips-without-game-fields, automated-execution-contract#ac:lifecycle-and-result-order-fail-closed
 **Depends-On:** 1
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 1d7301e82d83b9b270a4ba5921ee87bdf739e92e (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/contract.go, backend/contract4competios/source_operations.go, backend/contract4competios/disclosure_operations.go, backend/contract4competios/execution_contract_test.go
 
 Add discriminated scheduling/execution profiles, N-slot immutable participant
 versions, request/receipt/lifecycle/result and recorded-provenance types with
@@ -77,26 +104,34 @@ provider-executed path. Freeze positive and malformed JSON fixtures.
 **Id:** task-3
 **Verifies:** automated-execution-contract#ac:launch-grant-is-one-operation, automated-execution-contract#ac:event-grant-and-command-replay-are-distinct, automated-execution-contract#ac:source-validation-and-launch-never-cross
 **Depends-On:** 1
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 1d7301e82d83b9b270a4ba5921ee87bdf739e92e (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competios/operation_grants.go, backend/contract4competios/operation_grants_test.go, backend/contract4competiostest/grant_conformance.go
 
-Add dependency-free trusted-grant facts and issuer/verifier/client ports for
-game-issued launch/source-validation and Competios-issued event authority. Bind provider,
-competition, contest, command, body digest, method and resource; separate token
-replay from durable command replay. Publish time/skew/rotation/retry vectors but
-leave cryptographic and HTTP implementations outside this module.
+Add dependency-free trusted-grant facts and opaque-token issuer/verifier ports
+for game-issued launch, manifest-plan, validate-and-retain, disclosure-match and
+publish authority plus Competios-issued event authority. Bind issuer, subject,
+audience, token type, exact scope/purpose, provider, adapter, competition,
+contest, request, instance, command, typed payload digest, exact transport
+content type/body digest, method and resource. Separate token replay from
+durable command replay and key rotation from stable route equality. Leave JWT,
+OAuth, JWKS, HTTP and signing implementations outside this module.
 
 ### Task 4: Expand positive and adversarial conformance
 
 **Id:** task-4
 **Verifies:** automated-execution-contract#ac:two-unrelated-providers-conform, automated-execution-contract#ac:launch-grant-is-one-operation, automated-execution-contract#ac:event-grant-and-command-replay-are-distinct, automated-execution-contract#ac:source-validation-and-launch-never-cross, automated-execution-contract#ac:lifecycle-and-result-order-fail-closed
 **Depends-On:** 2, 3
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 1d7301e82d83b9b270a4ba5921ee87bdf739e92e (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competiostest/provider_conformance.go, backend/contract4competiostest/event_conformance.go, backend/contract4competiostest/source_conformance.go, backend/contract4competiostest/conformance_test.go, backend/contract4competiostest/source_conformance_test.go
 
 Run the same suite against Chess-shaped, independently implemented Bidding
-Tic-Tac-Toe and minimal three-slot tied-rank fakes. Add
-deliberately bad providers/verifiers for wrong slot count, audience, scope,
-operation binding, payload conflict, result order and premature result. Verify
-identical retries return the original receipt and no rejection leaks a private
+Tic-Tac-Toe and minimal three-slot tied-rank fakes. Add deliberately bad
+execution, event, source and verifier implementations for wrong slot count,
+audience, scope, operation binding, payload conflict, result order, premature
+result, unsafe source kind and authority-stage crossing. Verify identical
+retries return the original receipt/evidence and no rejection leaks a private
 participant fact.
 
 ### Task 5: Prove portability and deterministic wire behavior
@@ -104,12 +139,14 @@ participant fact.
 **Id:** task-5
 **Verifies:** automated-execution-contract#ac:provenance-round-trips-without-game-fields, automated-execution-contract#ac:module-remains-portable
 **Depends-On:** 2, 3, 4
-**Status:** planning
+**Status:** complete
+**Implemented-by:** 1d7301e82d83b9b270a4ba5921ee87bdf739e92e (codex/bots-cup-contract-foundation)
+**Evidence:** backend/contract4competiostest/canonical_fixtures_test.go, backend/contract4competiostest/testdata/automated-execution/execution-lifecycle.json, backend/contract4competiostest/testdata/automated-execution/source-artifact-lifecycle.json, backend/go.mod, go build ./..., go vet ./..., go test -race ./...
 
-Add compile-time/API, JSON round-trip, canonical digest and fuzz/property tests.
-Keep `backend/go.mod` free of `require` entries and prove tests need neither
-network nor credentials. Reject private imports, logging of bearer material and
-game-specific field names in the public execution types.
+Add compile-time/API, JSON round-trip, frozen domain-separated digest and
+mutation tests. Keep `backend/go.mod` free of `require` entries and prove tests
+need neither network nor credentials. Reject private imports, serialized bearer
+material and game-specific field names in the public execution types.
 
 ### Task 6: Cut every provider and consumer to the release candidate
 

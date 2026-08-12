@@ -11,8 +11,8 @@ a game integrates against.
 
 | Package | Purpose |
 |---|---|
-| [`backend/contract4competios`](backend/contract4competios) | The contract: `LaunchRequest`, `OrderedResult`, `ContestStart`, the `GameLauncher` / `ResultSink` / `ContestStartSink` interfaces, capabilities, projections and drafts. |
-| [`backend/contract4competiostest`](backend/contract4competiostest) | The conformance harness an implementor runs against their own adapter. |
+| [`backend/contract4competios`](backend/contract4competios) | The contract: discriminated scheduled/provider-executed requests, immutable N-slot execution receipts and lifecycle evidence, scoped-operation token ports, and staged source-plan/retention/publication/disclosure facts, plus capabilities, projections and drafts. |
+| [`backend/contract4competiostest`](backend/contract4competiostest) | Positive and adversarial execution, event-delivery, grant and source-artifact conformance harnesses an implementor runs against its own adapter. |
 
 ```
 go get github.com/sneat-co/ext-competios/backend
@@ -34,4 +34,7 @@ module exists to remove — so the build fails rather than quietly acquiring one
 ## Relationship to `sneat-co/competios`
 
 The private engine imports this module; never the reverse. Contract changes
-originate here and flow inward.
+originate here and flow inward. Provider and event operations receive only
+verified grant facts. The narrow issuer/verifier ports carry an opaque encoded
+access token without parsing or serializing bearer material.
+OAuth/JWT/JWKS/HTTP implementations remain in the owning services.
