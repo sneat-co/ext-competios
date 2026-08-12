@@ -24,9 +24,22 @@ jobs:
       - name: Vet
         working-directory: backend
         run: go vet ./...
-      - name: Test
+      - name: Test with 90% statement coverage minimum
         working-directory: backend
-        run: go test ./...
+        run: |
+          go test -coverprofile=coverage.out ./...
+          total_coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $NF); print $NF}')"
+          if [ -z "$total_coverage" ]; then
+            echo "coverage report did not contain a total"
+            exit 1
+          fi
+          awk -v total_coverage="$total_coverage" 'BEGIN {
+            if (total_coverage + 0 < 90) {
+              printf "total statement coverage %s%% is below the required 90%%\\n", total_coverage
+              exit 1
+            }
+            printf "total statement coverage %s%% meets the required 90%%\\n", total_coverage
+          }'
 
   no_dependencies:
     name: stdlib-only invariant
