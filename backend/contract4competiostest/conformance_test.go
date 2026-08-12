@@ -170,6 +170,20 @@ func (p *poisonOnRejectProvider) LaunchExecution(ctx context.Context, grant cont
 	return receipt, err
 }
 
+// replayBeforeAuthorityProvider deliberately consults the durable launch
+// ledger before validating a replay grant. New commands still use the safe
+// reference implementation, making this a focused ordering canary.
+type replayBeforeAuthorityProvider struct{ delegate referenceProvider }
+
+func (p *replayBeforeAuthorityProvider) LaunchExecution(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
+	if prior, exists := p.delegate.launches[request.CommandID]; exists && prior.digest == request.TypedPayloadDigest {
+		replay := prior.receipt
+		replay.Status = contract4competios.ReceiptReplayed
+		return replay, nil
+	}
+	return p.delegate.LaunchExecution(ctx, grant, request)
+}
+
 type storedEvent struct {
 	digest contract4competios.PayloadDigest
 }
@@ -241,6 +255,17 @@ func (s *poisonOnRejectEventSink) SubmitExecutionEvent(ctx context.Context, gran
 		s.poisoned = true
 	}
 	return ack, err
+}
+
+// replayBeforeAuthorityEventSink has the same deliberate ordering flaw at the
+// event boundary: exact command replay bypasses grant validation.
+type replayBeforeAuthorityEventSink struct{ delegate *referenceEventSink }
+
+func (s *replayBeforeAuthorityEventSink) SubmitExecutionEvent(ctx context.Context, grant contract4competios.VerifiedOperationGrant, event contract4competios.ExecutionEvent) (contract4competios.EventAcknowledgement, error) {
+	if prior, exists := s.delegate.events[event.CommandID]; exists && prior.digest == event.TypedPayloadDigest {
+		return contract4competios.EventAcknowledgement{Status: contract4competios.EventAcknowledgementReplayed}, nil
+	}
+	return s.delegate.SubmitExecutionEvent(ctx, grant, event)
 }
 
 type referenceVerifier struct {
@@ -357,6 +382,12 @@ func TestExecutionProviderConformanceRejectsPoisonOnRejectionFake(t *testing.T) 
 	}
 }
 
+func TestExecutionProviderConformanceRejectsReplayBeforeAuthorityFake(t *testing.T) {
+	if violations := CheckExecutionProvider(func() contract4competios.ExecutionProvider { return &replayBeforeAuthorityProvider{} }); len(violations) == 0 {
+		t.Fatal("provider that replays before authority validation unexpectedly passed conformance")
+	}
+}
+
 func TestCompositeExecutionJourneysRemainGameNeutral(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -465,6 +496,14 @@ func TestEventSinkConformanceRejectsPoisonOnRejectionFake(t *testing.T) {
 		return &poisonOnRejectEventSink{delegate: newReferenceEventSink(request, receipt)}
 	}); len(violations) == 0 {
 		t.Fatal("event sink that mutates state on rejection unexpectedly passed conformance")
+	}
+}
+
+func TestEventSinkConformanceRejectsReplayBeforeAuthorityFake(t *testing.T) {
+	if violations := CheckExecutionEventSink(func(request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) contract4competios.ExecutionEventSink {
+		return &replayBeforeAuthorityEventSink{delegate: newReferenceEventSink(request, receipt)}
+	}); len(violations) == 0 {
+		t.Fatal("event sink that replays before authority validation unexpectedly passed conformance")
 	}
 }
 

@@ -38,6 +38,17 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 	if err != nil || replay.Status != contract4competios.ReceiptReplayed || replay.ProviderInstanceID != first.ProviderInstanceID || !sameReceiptEvidence(first, replay) {
 		violations = append(violations, fmt.Errorf("fresh-token replay = %+v: %v", replay, err))
 	}
+	for name, mutate := range invalidLaunchGrantMutations() {
+		bad := launchGrantFixture(request, "populated-launch-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		if badReceipt, launchErr := provider.LaunchExecution(ctx, bad, request); !errors.Is(launchErr, contract4competios.ErrInvalidGrant) || !emptyExecutionReceipt(badReceipt) {
+			violations = append(violations, fmt.Errorf("populated launch %s grant = %+v: %v, want empty receipt and ErrInvalidGrant", name, badReceipt, launchErr))
+		}
+		replayed, replayErr := provider.LaunchExecution(ctx, launchGrantFixture(request, "populated-launch-retry-"+name, "key-rotated"), request)
+		if replayErr != nil || replayed.Status != contract4competios.ReceiptReplayed || !sameReceiptEvidence(first, replayed) {
+			violations = append(violations, fmt.Errorf("populated launch %s valid retry = %+v: %v", name, replayed, replayErr))
+		}
+	}
 
 	for name, mutate := range requestPayloadMutations(request) {
 		mutationProvider := factory()
@@ -94,6 +105,10 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 		}
 	}
 	return violations
+}
+
+func emptyExecutionReceipt(value contract4competios.ExecutionReceipt) bool {
+	return value.RequestID == "" && value.CommandID == "" && value.ProviderID == "" && value.AdapterID == "" && value.ProviderInstanceID == "" && value.Status == "" && len(value.SafeReferences) == 0
 }
 
 func sameReceiptEvidence(first, replay contract4competios.ExecutionReceipt) bool {
@@ -188,8 +203,10 @@ func invalidLaunchGrantMutations() map[string]func(*contract4competios.Operation
 		"token type":   func(v *contract4competios.OperationGrant) { v.TokenType = "other" },
 		"scope":        func(v *contract4competios.OperationGrant) { v.Scope = "other" },
 		"purpose":      func(v *contract4competios.OperationGrant) { v.Purpose = "other" },
+		"key":          func(v *contract4competios.OperationGrant) { v.KeyID = "" },
 		"token ID":     func(v *contract4competios.OperationGrant) { v.TokenID = "" },
 		"issued time":  func(v *contract4competios.OperationGrant) { v.IssuedAt = v.NotBefore.Add(time.Second) },
+		"not before":   func(v *contract4competios.OperationGrant) { v.NotBefore = v.IssuedAt.Add(time.Hour) },
 		"expiry":       func(v *contract4competios.OperationGrant) { v.ExpiresAt = v.NotBefore },
 		"provider":     func(v *contract4competios.OperationGrant) { v.ProviderID = "other" },
 		"adapter":      func(v *contract4competios.OperationGrant) { v.AdapterID = "other" },

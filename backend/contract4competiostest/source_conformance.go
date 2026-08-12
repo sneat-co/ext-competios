@@ -49,6 +49,8 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	if err != nil || replayedPlan.Status != contract4competios.ClosurePlanReceiptReplayed || replayedPlan.Plan.ClosurePlanDigest != planReceipt.Plan.ClosurePlanDigest || replayedPlan.Plan.ClosurePlanID != planReceipt.Plan.ClosurePlanID {
 		violations = append(violations, fmt.Errorf("closure plan replay = %+v: %v", replayedPlan, err))
 	}
+	manifestCrossPurpose, _ := sourceCandidateGrantFixture(sourceCandidateRequestFixture(planReceipt.Plan, sourceCandidateTransferFixture(), "manifest-cross-purpose-command"), sourceCandidateTransferFixture(), "manifest-cross-purpose-token", "key-a")
+	violations = append(violations, checkPopulatedManifestReplayAuthority(provider, manifest, manifestBytes, planReceipt, manifestCrossPurpose.Claims)...)
 
 	changedManifest := append(append([]byte(nil), manifestBytes...), ' ')
 	changedManifestGrant, _ := sourceManifestGrantFixture(manifest, changedManifest, "manifest-body-mismatch", "key-a")
@@ -95,6 +97,7 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	if err != nil || replayedRetention.Status != contract4competios.ArtifactRetentionReplayed || replayedRetention.ReceiptID != retention.ReceiptID || replayedRetention.ArtifactDigest != retention.ArtifactDigest {
 		violations = append(violations, fmt.Errorf("candidate replay = %+v: %v", replayedRetention, err))
 	}
+	violations = append(violations, checkPopulatedCandidateReplayAuthority(provider, candidate, transfer, retention, manifestGrant.Claims)...)
 
 	changedTransfer := copyCandidateTransfer(transfer)
 	changedTransfer.Files[0].Bytes = append(changedTransfer.Files[0].Bytes, '!')
@@ -203,6 +206,7 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	if err != nil || replayedDisclosure != verifiedDisclosure {
 		violations = append(violations, fmt.Errorf("disclosure replay = %+v: %v", replayedDisclosure, err))
 	}
+	violations = append(violations, checkPopulatedDisclosureReplayAuthority(provider, disclosure, transfer, verifiedDisclosure, candidateGrant.Claims)...)
 	crossStagePublication := sourcePublicationRequestFixture(retention, disclosure, verifiedDisclosure, disclosure.CommandID)
 	crossStagePublicationGrant, _ := sourcePublicationGrantFixture(crossStagePublication, "cross-stage-publication-token", "key-a")
 	if _, publishErr := provider.PublishArtifact(ctx, crossStagePublicationGrant, crossStagePublication); !errors.Is(publishErr, contract4competios.ErrCommandConflict) {
@@ -226,6 +230,7 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 	if err != nil || replayedPublication.Status != contract4competios.ArtifactPublicationReplayed || replayedPublication.ReceiptID != published.ReceiptID || replayedPublication.PublicReference != published.PublicReference || !replayedPublication.PublishedAt.Equal(published.PublishedAt) || replayedPublication.DisclosureReceiptID != published.DisclosureReceiptID || replayedPublication.DisclosureRequestDigest != published.DisclosureRequestDigest {
 		violations = append(violations, fmt.Errorf("publication replay = %+v: %v", replayedPublication, err))
 	}
+	violations = append(violations, checkPopulatedPublicationReplayAuthority(provider, publication, published, disclosureGrant.Claims)...)
 	changedPublicationPayload := publication.Payload()
 	changedPublicationPayload.ParticipantVersionID = "changed-version"
 	changedPublication, buildErr := contract4competios.NewArtifactPublicationRequest(changedPublicationPayload)
@@ -249,6 +254,282 @@ func CheckSourceArtifactProvider(factory SourceArtifactProviderFactory) []error 
 		}
 	}
 	return append(violations, checkSourceCommandLedgerPairs(factory)...)
+}
+
+func checkPopulatedManifestReplayAuthority(provider contract4competios.SourceArtifactProvider, request contract4competios.ManifestClosurePlanRequest, manifestBytes []byte, original contract4competios.ClosurePlanReceipt, crossPurpose contract4competios.OperationGrant) []error {
+	var violations []error
+	for name, mutate := range sourceReplayGrantMutationsForPurpose(contract4competios.GrantPurposeManifestClosurePlan) {
+		bad, _ := sourceManifestGrantFixture(request, manifestBytes, "populated-manifest-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		receipt, err := provider.PlanManifestClosure(context.Background(), bad, request, manifestBytes)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || !emptyClosurePlanReceipt(receipt) {
+			violations = append(violations, fmt.Errorf("populated manifest %s grant = %+v: %v, want empty receipt and ErrInvalidGrant", name, receipt, err))
+		}
+		valid, _ := sourceManifestGrantFixture(request, manifestBytes, "populated-manifest-retry-"+name, "key-rotated")
+		replayed, replayErr := provider.PlanManifestClosure(context.Background(), valid, request, manifestBytes)
+		if replayErr != nil || replayed.Status != contract4competios.ClosurePlanReceiptReplayed || !sameClosurePlanReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated manifest %s valid retry = %+v: %v", name, replayed, replayErr))
+		}
+	}
+	violations = append(violations, checkManifestCrossPurposeReplay(provider, request, manifestBytes, original, crossPurpose)...)
+	return violations
+}
+
+func emptyClosurePlanReceipt(value contract4competios.ClosurePlanReceipt) bool {
+	encoded, _ := json.Marshal(value)
+	empty, _ := json.Marshal(contract4competios.ClosurePlanReceipt{})
+	return string(encoded) == string(empty)
+}
+
+func checkPopulatedCandidateReplayAuthority(provider contract4competios.SourceArtifactProvider, request contract4competios.CandidateClosureRetentionRequest, transfer contract4competios.CandidateClosureTransfer, original contract4competios.ArtifactRetentionReceipt, crossPurpose contract4competios.OperationGrant) []error {
+	var violations []error
+	for name, mutate := range sourceReplayGrantMutationsForPurpose(contract4competios.GrantPurposeCandidateValidateRetain) {
+		bad, _ := sourceCandidateGrantFixture(request, transfer, "populated-candidate-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		receipt, err := provider.ValidateAndRetainCandidate(context.Background(), bad, request, transfer)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactRetentionReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated candidate %s grant = %+v: %v, want empty receipt and ErrInvalidGrant", name, receipt, err))
+		}
+		valid, _ := sourceCandidateGrantFixture(request, transfer, "populated-candidate-retry-"+name, "key-rotated")
+		replayed, replayErr := provider.ValidateAndRetainCandidate(context.Background(), valid, request, transfer)
+		if replayErr != nil || replayed.Status != contract4competios.ArtifactRetentionReplayed || !sameRetentionReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated candidate %s valid retry = %+v: %v", name, replayed, replayErr))
+		}
+	}
+	violations = append(violations, checkCandidateCrossPurposeReplay(provider, request, transfer, original, crossPurpose)...)
+	return violations
+}
+
+func checkPopulatedDisclosureReplayAuthority(provider contract4competios.SourceArtifactProvider, request contract4competios.ArtifactDisclosureVerificationRequest, transfer contract4competios.CandidateClosureTransfer, original contract4competios.ArtifactDisclosureVerificationReceipt, crossPurpose contract4competios.OperationGrant) []error {
+	var violations []error
+	for name, mutate := range sourceReplayGrantMutationsForPurpose(contract4competios.GrantPurposeArtifactDisclosureVerify) {
+		bad, _ := sourceDisclosureGrantFixture(request, transfer, "populated-disclosure-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		receipt, err := provider.VerifyArtifactDisclosure(context.Background(), bad, request, transfer)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactDisclosureVerificationReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated disclosure %s grant = %+v: %v, want empty receipt and ErrInvalidGrant", name, receipt, err))
+		}
+		valid, _ := sourceDisclosureGrantFixture(request, transfer, "populated-disclosure-retry-"+name, "key-rotated")
+		replayed, replayErr := provider.VerifyArtifactDisclosure(context.Background(), valid, request, transfer)
+		if replayErr != nil || replayed != original {
+			violations = append(violations, fmt.Errorf("populated disclosure %s valid retry = %+v: %v", name, replayed, replayErr))
+		}
+	}
+	violations = append(violations, checkDisclosureCrossPurposeReplay(provider, request, transfer, original, crossPurpose)...)
+	return violations
+}
+
+func checkPopulatedPublicationReplayAuthority(provider contract4competios.SourceArtifactProvider, request contract4competios.ArtifactPublicationRequest, original contract4competios.ArtifactPublicationReceipt, crossPurpose contract4competios.OperationGrant) []error {
+	var violations []error
+	for name, mutate := range sourceReplayGrantMutationsForPurpose(contract4competios.GrantPurposeArtifactPublish) {
+		bad, _ := sourcePublicationGrantFixture(request, "populated-publication-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		receipt, err := provider.PublishArtifact(context.Background(), bad, request)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactPublicationReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated publication %s grant = %+v: %v, want empty receipt and ErrInvalidGrant", name, receipt, err))
+		}
+		valid, _ := sourcePublicationGrantFixture(request, "populated-publication-retry-"+name, "key-rotated")
+		replayed, replayErr := provider.PublishArtifact(context.Background(), valid, request)
+		if replayErr != nil || replayed.Status != contract4competios.ArtifactPublicationReplayed || !samePublicationReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated publication %s valid retry = %+v: %v", name, replayed, replayErr))
+		}
+	}
+	violations = append(violations, checkPublicationCrossPurposeReplay(provider, request, original, crossPurpose)...)
+	return violations
+}
+
+func sourceReplayGrantMutationsForPurpose(purpose contract4competios.GrantPurpose) map[string]func(*contract4competios.OperationGrant) {
+	mutations := map[string]func(*contract4competios.OperationGrant){
+		"issuer":       func(value *contract4competios.OperationGrant) { value.Issuer = "other" },
+		"subject":      func(value *contract4competios.OperationGrant) { value.Subject = "other" },
+		"audience":     func(value *contract4competios.OperationGrant) { value.Audience = "other" },
+		"token type":   func(value *contract4competios.OperationGrant) { value.TokenType = "other" },
+		"scope":        func(value *contract4competios.OperationGrant) { value.Scope = "other" },
+		"purpose":      func(value *contract4competios.OperationGrant) { value.Purpose = "other" },
+		"key":          func(value *contract4competios.OperationGrant) { value.KeyID = "" },
+		"token ID":     func(value *contract4competios.OperationGrant) { value.TokenID = "" },
+		"issued time":  func(value *contract4competios.OperationGrant) { value.IssuedAt = value.NotBefore.Add(time.Second) },
+		"not before":   func(value *contract4competios.OperationGrant) { value.NotBefore = value.IssuedAt.Add(time.Hour) },
+		"expiry":       func(value *contract4competios.OperationGrant) { value.ExpiresAt = value.NotBefore },
+		"provider":     func(value *contract4competios.OperationGrant) { value.ProviderID = "other" },
+		"adapter":      func(value *contract4competios.OperationGrant) { value.AdapterID = "other" },
+		"command":      func(value *contract4competios.OperationGrant) { value.CommandID = "other" },
+		"typed digest": func(value *contract4competios.OperationGrant) { value.TypedPayloadDigest = payloadDigest("9") },
+		"content type": func(value *contract4competios.OperationGrant) { value.TransportContentType = "application/json" },
+		"raw digest":   func(value *contract4competios.OperationGrant) { value.RawTransportDigest = payloadDigest("8") },
+		"method":       func(value *contract4competios.OperationGrant) { value.Method = "PUT" },
+		"resource":     func(value *contract4competios.OperationGrant) { value.Resource = "/other" },
+	}
+	switch purpose {
+	case contract4competios.GrantPurposeManifestClosurePlan:
+		mutations["participant"] = func(value *contract4competios.OperationGrant) { value.ParticipantID = "other" }
+		mutations["participant version"] = func(value *contract4competios.OperationGrant) { value.ParticipantVersionID = "other" }
+		mutations["repository"] = func(value *contract4competios.OperationGrant) { value.RepositoryNodeID = "other" }
+		mutations["commit"] = func(value *contract4competios.OperationGrant) {
+			value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567"
+		}
+		mutations["manifest path"] = func(value *contract4competios.OperationGrant) { value.ManifestPath = "other/manifest.json" }
+		mutations["manifest kind"] = func(value *contract4competios.OperationGrant) {
+			value.ManifestEntryKind = contract4competios.SourceEntrySymlink
+		}
+		mutations["manifest digest"] = func(value *contract4competios.OperationGrant) { value.RawManifestBytesDigest = artifactDigest("7") }
+		mutations["manifest limit"] = func(value *contract4competios.OperationGrant) { value.ManifestByteLimit++ }
+	case contract4competios.GrantPurposeCandidateValidateRetain:
+		mutations["participant"] = func(value *contract4competios.OperationGrant) { value.ParticipantID = "other" }
+		mutations["participant version"] = func(value *contract4competios.OperationGrant) { value.ParticipantVersionID = "other" }
+		mutations["repository"] = func(value *contract4competios.OperationGrant) { value.RepositoryNodeID = "other" }
+		mutations["commit"] = func(value *contract4competios.OperationGrant) {
+			value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567"
+		}
+		mutations["plan ID"] = func(value *contract4competios.OperationGrant) { value.ClosurePlanID = "other" }
+		mutations["plan digest"] = func(value *contract4competios.OperationGrant) { value.ClosurePlanDigest = payloadDigest("6") }
+		mutations["candidate digest"] = func(value *contract4competios.OperationGrant) {
+			value.CandidateTransferredBytesDigest = artifactDigest("5")
+		}
+		mutations["aggregate limit"] = func(value *contract4competios.OperationGrant) { value.AggregateByteLimit++ }
+	case contract4competios.GrantPurposeArtifactDisclosureVerify:
+		mutations["participant"] = func(value *contract4competios.OperationGrant) { value.ParticipantID = "other" }
+		mutations["participant version"] = func(value *contract4competios.OperationGrant) { value.ParticipantVersionID = "other" }
+		mutations["repository"] = func(value *contract4competios.OperationGrant) { value.RepositoryNodeID = "other" }
+		mutations["commit"] = func(value *contract4competios.OperationGrant) {
+			value.CommitOID = "sha1:1123456789abcdef0123456789abcdef01234567"
+		}
+		mutations["plan ID"] = func(value *contract4competios.OperationGrant) { value.ClosurePlanID = "other" }
+		mutations["plan digest"] = func(value *contract4competios.OperationGrant) { value.ClosurePlanDigest = payloadDigest("6") }
+		mutations["public candidate digest"] = func(value *contract4competios.OperationGrant) {
+			value.PublicCandidateTransferredBytesDigest = artifactDigest("4")
+		}
+		mutations["aggregate limit"] = func(value *contract4competios.OperationGrant) { value.AggregateByteLimit++ }
+		mutations["retention receipt"] = func(value *contract4competios.OperationGrant) { value.RetentionReceiptID = "other" }
+		mutations["artifact digest"] = func(value *contract4competios.OperationGrant) { value.ArtifactDigest = artifactDigest("3") }
+	case contract4competios.GrantPurposeArtifactPublish:
+		mutations["participant"] = func(value *contract4competios.OperationGrant) { value.ParticipantID = "other" }
+		mutations["participant version"] = func(value *contract4competios.OperationGrant) { value.ParticipantVersionID = "other" }
+		mutations["retention receipt"] = func(value *contract4competios.OperationGrant) { value.RetentionReceiptID = "other" }
+		mutations["artifact digest"] = func(value *contract4competios.OperationGrant) { value.ArtifactDigest = artifactDigest("3") }
+		mutations["disclosure receipt"] = func(value *contract4competios.OperationGrant) { value.DisclosureReceiptID = "other" }
+		mutations["disclosure request"] = func(value *contract4competios.OperationGrant) { value.DisclosureRequestDigest = payloadDigest("2") }
+	}
+	return mutations
+}
+
+func checkManifestCrossPurposeReplay(provider contract4competios.SourceArtifactProvider, request contract4competios.ManifestClosurePlanRequest, manifestBytes []byte, original contract4competios.ClosurePlanReceipt, claims contract4competios.OperationGrant) []error {
+	target, _ := sourceManifestGrantFixture(request, manifestBytes, "populated-manifest-target", "key-a")
+	var violations []error
+	for _, probe := range crossPurposeReplayProbes(target.Claims, claims) {
+		receipt, err := provider.PlanManifestClosure(context.Background(), probe.grant, request, manifestBytes)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || !emptyClosurePlanReceipt(receipt) {
+			violations = append(violations, fmt.Errorf("populated manifest %s cross-purpose grant = %+v: %v", probe.name, receipt, err))
+		}
+		valid, _ := sourceManifestGrantFixture(request, manifestBytes, "populated-manifest-"+probe.name+"-retry", "key-rotated")
+		replayed, replayErr := provider.PlanManifestClosure(context.Background(), valid, request, manifestBytes)
+		if replayErr != nil || replayed.Status != contract4competios.ClosurePlanReceiptReplayed || !sameClosurePlanReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated manifest valid retry after %s cross-purpose grant = %+v: %v", probe.name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
+func checkCandidateCrossPurposeReplay(provider contract4competios.SourceArtifactProvider, request contract4competios.CandidateClosureRetentionRequest, transfer contract4competios.CandidateClosureTransfer, original contract4competios.ArtifactRetentionReceipt, claims contract4competios.OperationGrant) []error {
+	target, _ := sourceCandidateGrantFixture(request, transfer, "populated-candidate-target", "key-a")
+	var violations []error
+	for _, probe := range crossPurposeReplayProbes(target.Claims, claims) {
+		receipt, err := provider.ValidateAndRetainCandidate(context.Background(), probe.grant, request, transfer)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactRetentionReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated candidate %s cross-purpose grant = %+v: %v", probe.name, receipt, err))
+		}
+		valid, _ := sourceCandidateGrantFixture(request, transfer, "populated-candidate-"+probe.name+"-retry", "key-rotated")
+		replayed, replayErr := provider.ValidateAndRetainCandidate(context.Background(), valid, request, transfer)
+		if replayErr != nil || replayed.Status != contract4competios.ArtifactRetentionReplayed || !sameRetentionReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated candidate valid retry after %s cross-purpose grant = %+v: %v", probe.name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
+func checkDisclosureCrossPurposeReplay(provider contract4competios.SourceArtifactProvider, request contract4competios.ArtifactDisclosureVerificationRequest, transfer contract4competios.CandidateClosureTransfer, original contract4competios.ArtifactDisclosureVerificationReceipt, claims contract4competios.OperationGrant) []error {
+	target, _ := sourceDisclosureGrantFixture(request, transfer, "populated-disclosure-target", "key-a")
+	var violations []error
+	for _, probe := range crossPurposeReplayProbes(target.Claims, claims) {
+		receipt, err := provider.VerifyArtifactDisclosure(context.Background(), probe.grant, request, transfer)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactDisclosureVerificationReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated disclosure %s cross-purpose grant = %+v: %v", probe.name, receipt, err))
+		}
+		valid, _ := sourceDisclosureGrantFixture(request, transfer, "populated-disclosure-"+probe.name+"-retry", "key-rotated")
+		replayed, replayErr := provider.VerifyArtifactDisclosure(context.Background(), valid, request, transfer)
+		if replayErr != nil || replayed != original {
+			violations = append(violations, fmt.Errorf("populated disclosure valid retry after %s cross-purpose grant = %+v: %v", probe.name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
+func checkPublicationCrossPurposeReplay(provider contract4competios.SourceArtifactProvider, request contract4competios.ArtifactPublicationRequest, original contract4competios.ArtifactPublicationReceipt, claims contract4competios.OperationGrant) []error {
+	target, _ := sourcePublicationGrantFixture(request, "populated-publication-target", "key-a")
+	var violations []error
+	for _, probe := range crossPurposeReplayProbes(target.Claims, claims) {
+		receipt, err := provider.PublishArtifact(context.Background(), probe.grant, request)
+		if !errors.Is(err, contract4competios.ErrInvalidGrant) || receipt != (contract4competios.ArtifactPublicationReceipt{}) {
+			violations = append(violations, fmt.Errorf("populated publication %s cross-purpose grant = %+v: %v", probe.name, receipt, err))
+		}
+		valid, _ := sourcePublicationGrantFixture(request, "populated-publication-"+probe.name+"-retry", "key-rotated")
+		replayed, replayErr := provider.PublishArtifact(context.Background(), valid, request)
+		if replayErr != nil || replayed.Status != contract4competios.ArtifactPublicationReplayed || !samePublicationReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated publication valid retry after %s cross-purpose grant = %+v: %v", probe.name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
+type crossPurposeReplayProbe struct {
+	name  string
+	grant contract4competios.VerifiedOperationGrant
+}
+
+// crossPurposeReplayProbes covers both useful representations of a source
+// stage crossing. purpose-only changes exactly purpose/scope on the target
+// grant; because source claims are a closed discriminator, it is deliberately
+// structurally invalid. foreign-valid keeps a complete valid foreign-purpose
+// claim set but rebinds its command, typed/raw body, provider/adapter and route
+// facts to the populated target operation. Both must fail before replay.
+func crossPurposeReplayProbes(target, foreign contract4competios.OperationGrant) []crossPurposeReplayProbe {
+	purposeOnly := target
+	purposeOnly.Purpose, purposeOnly.Scope = foreign.Purpose, foreign.Scope
+	purposeOnly.TokenID = "purpose-only-crossing"
+
+	foreignValid := foreign
+	foreignValid.Issuer, foreignValid.Subject, foreignValid.Audience = target.Issuer, target.Subject, target.Audience
+	foreignValid.TokenType, foreignValid.KeyID = target.TokenType, target.KeyID
+	foreignValid.TokenID = "foreign-valid-crossing"
+	foreignValid.IssuedAt, foreignValid.NotBefore, foreignValid.ExpiresAt = target.IssuedAt, target.NotBefore, target.ExpiresAt
+	foreignValid.ProviderID, foreignValid.AdapterID = target.ProviderID, target.AdapterID
+	foreignValid.CommandID, foreignValid.TypedPayloadDigest = target.CommandID, target.TypedPayloadDigest
+	foreignValid.TransportContentType, foreignValid.RawTransportDigest = target.TransportContentType, target.RawTransportDigest
+	foreignValid.Method, foreignValid.Resource = target.Method, target.Resource
+	if contract4competios.ValidateOperationGrant(foreignValid) != nil || foreignValid.Purpose == target.Purpose || foreignValid.CommandID != target.CommandID || foreignValid.TypedPayloadDigest != target.TypedPayloadDigest || foreignValid.RawTransportDigest != target.RawTransportDigest || foreignValid.TransportContentType != target.TransportContentType || foreignValid.Method != target.Method || foreignValid.Resource != target.Resource {
+		panic("invalid cross-purpose replay fixture")
+	}
+	return []crossPurposeReplayProbe{
+		{name: "purpose-only", grant: contract4competios.VerifiedOperationGrant{Claims: purposeOnly}},
+		{name: "foreign-valid", grant: contract4competios.VerifiedOperationGrant{Claims: foreignValid}},
+	}
+}
+
+func sameClosurePlanReceiptEvidence(first, replay contract4competios.ClosurePlanReceipt) bool {
+	first.Status, replay.Status = "", ""
+	firstJSON, _ := json.Marshal(first)
+	replayJSON, _ := json.Marshal(replay)
+	return string(firstJSON) == string(replayJSON)
+}
+
+func sameRetentionReceiptEvidence(first, replay contract4competios.ArtifactRetentionReceipt) bool {
+	first.Status, replay.Status = "", ""
+	return first == replay
+}
+
+func samePublicationReceiptEvidence(first, replay contract4competios.ArtifactPublicationReceipt) bool {
+	first.Status, replay.Status = "", ""
+	return first == replay
 }
 
 type sourceLedgerPrerequisites struct {

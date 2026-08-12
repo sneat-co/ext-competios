@@ -97,7 +97,9 @@ business service still reauthorises stored state.
 Token ID is short-lived transport replay identity. Command ID plus body digest
 is the durable idempotency identity. Conformance proves that a new token can
 retry the same command/body after an unknown outcome and that neither identity
-can be reused for a different operation.
+can be reused for a different operation. Authority and exact route/body binding
+are validated before every command-ledger lookup, including replay of an
+already accepted launch, lifecycle event or source operation.
 
 Source operations are staged and game-neutral. A manifest-plan request binds
 participant/version, repository node, algorithm-qualified full immutable commit

@@ -212,6 +212,45 @@ func (unsafeSourceProvider) VerifyArtifactDisclosure(_ context.Context, _ contra
 	return contract4competios.ArtifactDisclosureVerificationReceipt{CommandID: request.CommandID, Verdict: contract4competios.ArtifactDisclosureMatched, VerifiedAt: time.Now()}, nil
 }
 
+// replayBeforeAuthoritySourceProvider deliberately returns an existing exact
+// command receipt before validating its replay grant. New commands delegate to
+// the safe reference provider, isolating the ledger/authority ordering defect.
+type replayBeforeAuthoritySourceProvider struct{ delegate *referenceSourceProvider }
+
+func (p *replayBeforeAuthoritySourceProvider) PlanManifestClosure(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ManifestClosurePlanRequest, manifestBytes []byte) (contract4competios.ClosurePlanReceipt, error) {
+	if command, exists := p.delegate.commands[request.CommandID]; exists && command.purpose == contract4competios.GrantPurposeManifestClosurePlan && command.digest == request.TypedPayloadDigest {
+		replay := p.delegate.planCommands[request.CommandID]
+		replay.Status = contract4competios.ClosurePlanReceiptReplayed
+		return replay, nil
+	}
+	return p.delegate.PlanManifestClosure(ctx, grant, request, manifestBytes)
+}
+
+func (p *replayBeforeAuthoritySourceProvider) ValidateAndRetainCandidate(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.CandidateClosureRetentionRequest, transfer contract4competios.CandidateClosureTransfer) (contract4competios.ArtifactRetentionReceipt, error) {
+	if command, exists := p.delegate.commands[request.CommandID]; exists && command.purpose == contract4competios.GrantPurposeCandidateValidateRetain && command.digest == request.TypedPayloadDigest {
+		replay := p.delegate.candidates[request.CommandID]
+		replay.Status = contract4competios.ArtifactRetentionReplayed
+		return replay, nil
+	}
+	return p.delegate.ValidateAndRetainCandidate(ctx, grant, request, transfer)
+}
+
+func (p *replayBeforeAuthoritySourceProvider) VerifyArtifactDisclosure(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ArtifactDisclosureVerificationRequest, transfer contract4competios.CandidateClosureTransfer) (contract4competios.ArtifactDisclosureVerificationReceipt, error) {
+	if command, exists := p.delegate.commands[request.CommandID]; exists && command.purpose == contract4competios.GrantPurposeArtifactDisclosureVerify && command.digest == request.TypedPayloadDigest {
+		return p.delegate.disclosures[request.CommandID].receipt, nil
+	}
+	return p.delegate.VerifyArtifactDisclosure(ctx, grant, request, transfer)
+}
+
+func (p *replayBeforeAuthoritySourceProvider) PublishArtifact(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ArtifactPublicationRequest) (contract4competios.ArtifactPublicationReceipt, error) {
+	if command, exists := p.delegate.commands[request.CommandID]; exists && command.purpose == contract4competios.GrantPurposeArtifactPublish && command.digest == request.TypedPayloadDigest {
+		replay := p.delegate.publications[request.CommandID]
+		replay.Status = contract4competios.ArtifactPublicationReplayed
+		return replay, nil
+	}
+	return p.delegate.PublishArtifact(ctx, grant, request)
+}
+
 func TestSourceArtifactProviderConformance(t *testing.T) {
 	if violations := CheckSourceArtifactProvider(func() contract4competios.SourceArtifactProvider { return newReferenceSourceProvider() }); len(violations) != 0 {
 		t.Fatalf("reference source provider violations: %v", violations)
@@ -225,6 +264,11 @@ func TestSourceArtifactProviderConformance(t *testing.T) {
 		return provider
 	}); len(violations) == 0 {
 		t.Fatal("provider with a non-adjacent source command ledger gap unexpectedly passed conformance")
+	}
+	if violations := CheckSourceArtifactProvider(func() contract4competios.SourceArtifactProvider {
+		return &replayBeforeAuthoritySourceProvider{delegate: newReferenceSourceProvider()}
+	}); len(violations) == 0 {
+		t.Fatal("source provider that replays before authority validation unexpectedly passed conformance")
 	}
 }
 

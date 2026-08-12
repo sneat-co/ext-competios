@@ -53,6 +53,7 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 	if err != nil || ack.Status != contract4competios.EventAcknowledgementReplayed {
 		violations = append(violations, fmt.Errorf("fresh-token start replay = %+v: %v", ack, err))
 	}
+	violations = append(violations, checkPopulatedEventReplayAuthority(sink, start, "started")...)
 
 	for name, mutate := range startEventPayloadMutations() {
 		mutationSink := factory(request, receipt)
@@ -103,6 +104,7 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 	if err != nil || ack.Status != contract4competios.EventAcknowledgementAccepted {
 		violations = append(violations, fmt.Errorf("first result = %+v: %v", ack, err))
 	}
+	violations = append(violations, checkPopulatedEventReplayAuthority(sink, result, "terminal")...)
 	freshResultGrant := eventGrantFixture(result, "result-token-fresh", "key-rotated")
 	ack, err = sink.SubmitExecutionEvent(ctx, freshResultGrant, result)
 	if err != nil || ack.Status != contract4competios.EventAcknowledgementReplayed {
@@ -216,6 +218,24 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 	return violations
 }
 
+func checkPopulatedEventReplayAuthority(sink contract4competios.ExecutionEventSink, event contract4competios.ExecutionEvent, label string) []error {
+	ctx := context.Background()
+	var violations []error
+	for name, mutate := range invalidEventGrantMutations() {
+		bad := eventGrantFixture(event, label+"-populated-bad-"+name, "key-a")
+		mutate(&bad.Claims)
+		ack, submitErr := sink.SubmitExecutionEvent(ctx, bad, event)
+		if !errors.Is(submitErr, contract4competios.ErrInvalidGrant) || ack != (contract4competios.EventAcknowledgement{}) {
+			violations = append(violations, fmt.Errorf("populated %s %s grant = %+v: %v, want empty acknowledgement and ErrInvalidGrant", label, name, ack, submitErr))
+		}
+		replayed, replayErr := sink.SubmitExecutionEvent(ctx, eventGrantFixture(event, label+"-populated-retry-"+name, "key-rotated"), event)
+		if replayErr != nil || replayed.Status != contract4competios.EventAcknowledgementReplayed {
+			violations = append(violations, fmt.Errorf("populated %s %s valid retry = %+v: %v", label, name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
 func startEventPayloadMutations() map[string]func(*contract4competios.ExecutionEventPayload) {
 	return map[string]func(*contract4competios.ExecutionEventPayload){
 		"id":          func(v *contract4competios.ExecutionEventPayload) { v.ID = "other-start" },
@@ -320,6 +340,8 @@ func invalidEventGrantMutations() map[string]func(*contract4competios.OperationG
 		"token type":   func(v *contract4competios.OperationGrant) { v.TokenType = "other" },
 		"scope":        func(v *contract4competios.OperationGrant) { v.Scope = "other" },
 		"purpose":      func(v *contract4competios.OperationGrant) { v.Purpose = "other" },
+		"key":          func(v *contract4competios.OperationGrant) { v.KeyID = "" },
+		"not before":   func(v *contract4competios.OperationGrant) { v.NotBefore = v.IssuedAt.Add(time.Hour) },
 		"provider":     func(v *contract4competios.OperationGrant) { v.ProviderID = "other" },
 		"adapter":      func(v *contract4competios.OperationGrant) { v.AdapterID = "other" },
 		"competition":  func(v *contract4competios.OperationGrant) { v.CompetitionID = "other" },
