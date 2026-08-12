@@ -41,6 +41,40 @@ jobs:
             printf "total statement coverage %s%% meets the required 90%%\\n", total_coverage
           }'
 
+  grants:
+    name: grants build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: grants/go.mod
+      # grants depends on the backend module via its published tag (proxy
+      # fetch, not a local replace), plus golang-jwt/jwt and dalgo — all
+      # public modules, so no private-module auth is needed here either.
+      - name: Build
+        working-directory: grants
+        run: go build ./...
+      - name: Vet
+        working-directory: grants
+        run: go vet ./...
+      - name: Test with 90% statement coverage minimum
+        working-directory: grants
+        run: |
+          go test -coverprofile=coverage.out ./...
+          total_coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $NF); print $NF}')"
+          if [ -z "$total_coverage" ]; then
+            echo "coverage report did not contain a total"
+            exit 1
+          fi
+          awk -v total_coverage="$total_coverage" 'BEGIN {
+            if (total_coverage + 0 < 90) {
+              printf "total statement coverage %s%% is below the required 90%%\\n", total_coverage
+              exit 1
+            }
+            printf "total statement coverage %s%% meets the required 90%%\\n", total_coverage
+          }'
+
   no_dependencies:
     name: stdlib-only invariant
     runs-on: ubuntu-latest
