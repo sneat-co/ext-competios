@@ -1,0 +1,88 @@
+{
+  "manifestRequest": {
+    "providerID": "provider", "adapterID": "adapter", "commandID": "manifest-command",
+    "participantID": "participant-a", "participantVersionID": "version-a",
+    "repositoryNodeID": "repository-node", "commit": "0123456789abcdef0123456789abcdef01234567",
+    "manifestPath": "bots/manifest.json", "manifestEntryKind": "regular",
+    "rawManifestBytesDigest": "sha256:3f3f6d7f6859276ecf29eeecbce05e94599fc1142e1f8783ebb18a7d6646f59d",
+    "manifestByteLimit": 32768,
+    "typedPayloadDigest": "sha256:78481f9ed000ce12a5090d32772115e8bcdb9e11283e01d4b5c7fdaa2f8ab814"
+  },
+  "planReceipt": {
+    "providerID": "provider", "adapterID": "adapter", "commandID": "manifest-command",
+    "participantID": "participant-a", "participantVersionID": "version-a",
+    "requestPayloadDigest": "sha256:78481f9ed000ce12a5090d32772115e8bcdb9e11283e01d4b5c7fdaa2f8ab814",
+    "plan": {
+      "closurePlanID": "closure-plan", "providerID": "provider", "adapterID": "adapter",
+      "participantID": "participant-a", "participantVersionID": "version-a",
+      "repositoryNodeID": "repository-node", "commit": "0123456789abcdef0123456789abcdef01234567",
+      "manifestPath": "bots/manifest.json", "manifestEntryKind": "regular",
+      "manifestRequestDigest": "sha256:78481f9ed000ce12a5090d32772115e8bcdb9e11283e01d4b5c7fdaa2f8ab814",
+      "rawManifestBytesDigest": "sha256:3f3f6d7f6859276ecf29eeecbce05e94599fc1142e1f8783ebb18a7d6646f59d",
+      "files": [
+        {"canonicalPath": "bots/bot.star", "entryKind": "regular", "byteLimit": 65536},
+        {"canonicalPath": "bots/opening.json", "entryKind": "regular", "byteLimit": 32768}
+      ],
+      "aggregateByteLimit": 98304,
+      "closurePlanDigest": "sha256:246d44baac9945f242a1d3dad298d7239cf1f6738415ca2ac01f0c1ca1dabcde"
+    },
+    "status": "accepted"
+  },
+  "candidateRequest": {
+    "providerID": "provider", "adapterID": "adapter", "commandID": "candidate-command",
+    "participantID": "participant-a", "participantVersionID": "version-a",
+    "repositoryNodeID": "repository-node", "commit": "0123456789abcdef0123456789abcdef01234567",
+    "closurePlanID": "closure-plan",
+    "closurePlanDigest": "sha256:246d44baac9945f242a1d3dad298d7239cf1f6738415ca2ac01f0c1ca1dabcde",
+    "candidateTransferredBytesDigest": "sha256:571cb64142fd559d94c594001c0719da3afffb5390e7bdd16b9454ccd1afd291",
+    "aggregateByteLimit": 98304,
+    "typedPayloadDigest": "sha256:49d459dc1ed5c2344cdb290a03d9a3c9230517e101219179cfe78ca7009b1b1e"
+  },
+  "retentionReceipt": {
+    "receiptID": "retention-version-a", "providerID": "provider", "adapterID": "adapter",
+    "commandID": "candidate-command", "participantID": "participant-a", "participantVersionID": "version-a",
+    "closurePlanID": "closure-plan",
+    "closurePlanDigest": "sha256:246d44baac9945f242a1d3dad298d7239cf1f6738415ca2ac01f0c1ca1dabcde",
+    "candidateRequestDigest": "sha256:49d459dc1ed5c2344cdb290a03d9a3c9230517e101219179cfe78ca7009b1b1e",
+    "artifactDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "status": "accepted"
+  },
+  "publicationRequest": {
+    "providerID": "provider", "adapterID": "adapter", "commandID": "publication-command",
+    "participantID": "participant-a", "participantVersionID": "version-a",
+    "retentionReceiptID": "retention-version-a",
+    "artifactDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "typedPayloadDigest": "sha256:27963bd4a2468f4b9c8dfd384ef8697eb6477ab78a74c46c4b4f11c637036f64"
+  },
+  "publicationReceipt": {
+    "receiptID": "publication-1", "providerID": "provider", "adapterID": "adapter",
+    "commandID": "publication-command", "participantID": "participant-a", "participantVersionID": "version-a",
+    "retentionReceiptID": "retention-version-a",
+    "publicationRequestDigest": "sha256:27963bd4a2468f4b9c8dfd384ef8697eb6477ab78a74c46c4b4f11c637036f64",
+    "artifactDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "publishedAt": "2026-08-12T12:10:00Z",
+    "publicReference": "https://game.example/public/artifact-1",
+    "status": "accepted"
+  },
+  "disclosureRequest": {
+    "providerID": "provider", "adapterID": "adapter", "commandID": "disclosure-command",
+    "participantID": "participant-a", "participantVersionID": "version-a",
+    "repositoryNodeID": "repository-node", "commit": "0123456789abcdef0123456789abcdef01234567",
+    "closurePlanID": "closure-plan",
+    "closurePlanDigest": "sha256:246d44baac9945f242a1d3dad298d7239cf1f6738415ca2ac01f0c1ca1dabcde",
+    "aggregateByteLimit": 98304,
+    "retentionReceiptID": "retention-version-a",
+    "artifactDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "publicCandidateTransferredBytesDigest": "sha256:571cb64142fd559d94c594001c0719da3afffb5390e7bdd16b9454ccd1afd291",
+    "typedPayloadDigest": "sha256:63bf09f7983369f1da85db6bfe9e3614b547dcc71f790ce896a75c133499e94c"
+  },
+  "disclosureReceipt": {
+    "receiptID": "disclosure-disclosure-command", "providerID": "provider", "adapterID": "adapter",
+    "commandID": "disclosure-command", "participantID": "participant-a", "participantVersionID": "version-a",
+    "retentionReceiptID": "retention-version-a",
+    "artifactDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "verificationRequestDigest": "sha256:63bf09f7983369f1da85db6bfe9e3614b547dcc71f790ce896a75c133499e94c",
+    "verdict": "matched",
+    "verifiedAt": "2026-08-12T12:11:00Z"
+  }
+}

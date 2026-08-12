@@ -53,7 +53,7 @@ token is unexpired.
 
 ### Generic execution vocabulary
 
-The Competios automated execution contract v1 contains:
+The ext-competios backend automated-execution contract v0.1.0 contains:
 
 - stable provider, adapter, competition, contest, request and command IDs;
 - ordered participant/version slots with generic artifact references;
@@ -62,7 +62,8 @@ The Competios automated execution contract v1 contains:
   schedule confirmation;
 - one execution receipt with immutable provider instance and safe artifact
   links;
-- typed queued/running/completed/failed/cancelled lifecycle events;
+- one accepted/replayed launch receipt as the queued fact, followed only by
+  started/completed/failed/cancelled lifecycle events;
 - ordered N-participant placements, ties, generic failure/adjudication facts;
   and
 - a recorded-provenance envelope of source/artifact, provider/runtime/rules,
@@ -75,31 +76,46 @@ with its own opaque configuration and result semantics.
 
 ### Token contract without a crypto implementation
 
-The public module names five mutually exclusive credential purposes across four
-trust domains but never parses or signs a JWT:
-
-- a game-issued execution-launch access token for Competios;
-- a separate game-issued source-validation access token for Competios;
-- a Competios-issued event access token for the game;
-- human platform/OIDC identity; and
-- a GitHub App installation token.
+The public module names mutually exclusive operation purposes but never parses
+or signs a JWT. Game-issued grants use the exact scopes
+`participant.version.manifest.plan`,
+`participant.version.validate-and-retain`,
+`participant.version.disclosure.match`, `participant.version.publish` and
+`competition.contest.launch`; Competios-issued start and terminal-event grants
+use separate event scopes. Human platform/OIDC identity and GitHub App
+installation credentials remain outside this operation-grant contract.
 
 Execution and event grant facts include exact issuer, subject, audience, token
 type, scope, key ID, issued/not-before/expiry time, token ID, provider,
 competition, contest, business command, canonical body digest, HTTP method and
-resource. Implementations pin algorithms/issuer metadata and validate the token
-before constructing a trusted grant value. The business service accepts only
-that trusted value and still reauthorises stored state.
+resource. The issuer port accepts only exact requested operation/body/route
+facts and returns an opaque encoded access token plus expiry metadata. The
+verifier accepts only that opaque token and returns trusted claims after the
+owning service performs algorithm, key, issuer, audience and time checks. The
+business service still reauthorises stored state.
 
 Token ID is short-lived transport replay identity. Command ID plus body digest
 is the durable idempotency identity. Conformance proves that a new token can
 retry the same command/body after an unknown outcome and that neither identity
 can be reused for a different operation.
 
-Source-validation grants additionally bind participant/version, repository node
-ID, full commit, canonical path, expected manifest/artifact digests and byte
-limit. The contract carries retained bytes/metadata, never a GitHub installation
-token; validation and launch grants are not interchangeable.
+Source operations are staged and game-neutral. A manifest-plan request binds
+participant/version, repository node, full commit, canonical manifest path,
+resolver-reported regular-file kind, exact raw manifest digest/body and limit.
+The provider returns an ordered canonical-path closure plan with per-file and
+aggregate limits. A second validate-and-retain request transfers only those
+ordered candidate files with their resolver-reported kinds and exact envelope
+digest; symlinks and submodules fail before parsing or retention. The provider
+is the first authority allowed to issue the canonical artifact digest after
+acceptance. Post-deadline publish and disclosure-match operations bind that
+receipt and let the provider compare the unauthenticated public candidate with
+its retained artifact.
+
+Competios may transiently stream fixed-commit manifest/candidate bytes but does
+not retain executable bytes or calculate the canonical closure match. The game
+provider owns retained bytes, publication timestamp/reference and disclosure
+verdict. No source operation carries a GitHub installation token, and no source
+scope can cross into launch or lifecycle delivery.
 
 ### Greenfield cutover and compatibility
 
@@ -143,15 +159,17 @@ reuse with changed content conflicts without a second lifecycle fact.
 
 ### AC: source-validation-and-launch-never-cross
 
-**Given** one game-issued validation grant and one launch grant<br>
-**When** either is sent to the other resource or source metadata/bytes differ
-from participant/version/commit/path/digest/limit binding<br>
-**Then** it fails before compilation, artifact persistence or match creation and
-no GitHub credential/private source enters a safe error or log.
+**Given** game-issued manifest-plan, validate-and-retain, disclosure-match,
+publish and launch grants<br>
+**When** any grant crosses stages, the manifest/candidate entry kind is not
+regular, or source metadata/bytes differ from the bound
+participant/version/repository/commit/path/plan/digest/limit facts<br>
+**Then** it fails before parsing, compilation, retention, publication or match
+creation and no GitHub credential/private source enters a safe error or log.
 
 ### AC: lifecycle-and-result-order-fail-closed
 
-**Given** a queued execution with no accepted start<br>
+**Given** an accepted launch receipt with no accepted start<br>
 **When** result-before-start, duplicate-conflicting result, wrong instance,
 cancelled contest or out-of-order lifecycle evidence arrives<br>
 **Then** conformance rejects it and preserves the last valid immutable state.

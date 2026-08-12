@@ -11,8 +11,8 @@ a game integrates against.
 
 | Package | Purpose |
 |---|---|
-| [`backend/contract4competios`](backend/contract4competios) | The contract: immutable N-slot execution requests and receipts, lifecycle/result evidence, recorded provenance, terminal replay state, verified operation-grant facts, plus capabilities, projections and drafts. |
-| [`backend/contract4competiostest`](backend/contract4competiostest) | Positive and adversarial execution, event-delivery and grant conformance harnesses an implementor runs against its own adapter. |
+| [`backend/contract4competios`](backend/contract4competios) | The contract: discriminated scheduled/provider-executed requests, immutable N-slot execution receipts and lifecycle evidence, scoped-operation token ports, and staged source-plan/retention/publication/disclosure facts, plus capabilities, projections and drafts. |
+| [`backend/contract4competiostest`](backend/contract4competiostest) | Positive and adversarial execution, event-delivery, grant and source-artifact conformance harnesses an implementor runs against its own adapter. |
 
 ```
 go get github.com/sneat-co/ext-competios/backend
@@ -34,6 +34,7 @@ module exists to remove — so the build fails rather than quietly acquiring one
 ## Relationship to `sneat-co/competios`
 
 The private engine imports this module; never the reverse. Contract changes
-originate here and flow inward. The execution boundary carries verified grant
-facts, never raw bearer tokens: OAuth/JWT/JWKS/HTTP implementations remain in
-the owning services.
+originate here and flow inward. Provider and event operations receive only
+verified grant facts. The narrow issuer/verifier ports carry an opaque encoded
+access token without parsing or serializing bearer material.
+OAuth/JWT/JWKS/HTTP implementations remain in the owning services.

@@ -1,0 +1,105 @@
+{
+  "request": {
+    "id": "request",
+    "providerID": "provider",
+    "adapterID": "adapter",
+    "competitionID": "cup",
+    "contestID": "contest",
+    "commandID": "launch-command",
+    "gameID": "chess-raiders",
+    "rulesetVersion": "rules",
+    "profile": {
+      "kind": "provider-executed",
+      "providerExecuted": {
+        "slots": [
+          {"ordinal": 0, "entryID": "entry-a", "participant": {"participantID": "participant-a", "participantVersionID": "version-a", "artifactDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+          {"ordinal": 1, "entryID": "entry-b", "participant": {"participantID": "participant-b", "participantVersionID": "version-b", "artifactDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        ],
+        "configuration": {"version": "chess-provider-v1", "data": "eyJib2FyZCI6InN0YW5kYXJkIn0="},
+        "notBefore": "2026-08-12T12:01:00Z",
+        "deadline": "2026-08-12T13:00:00Z"
+      }
+    },
+    "requestedPublicArtifacts": ["terminal-replay"],
+    "callback": {"resource": "/competios/events"},
+    "typedPayloadDigest": "sha256:8fe9f4e71046887064cd0e6c357632897cc44820255f58dac1e7828e34001306"
+  },
+  "grant": {
+    "issuer": "https://issuer.example",
+    "subject": "svc:competios",
+    "audience": "game/execution",
+    "tokenType": "at+jwt",
+    "scope": "competition.contest.launch",
+    "purpose": "contest-launch",
+    "keyID": "key-vector",
+    "tokenID": "token-vector",
+    "issuedAt": "2026-08-12T12:00:00Z",
+    "notBefore": "2026-08-12T12:00:00Z",
+    "expiresAt": "2026-08-12T12:05:00Z",
+    "providerID": "provider",
+    "adapterID": "adapter",
+    "competitionID": "cup",
+    "contestID": "contest",
+    "requestID": "request",
+    "commandID": "launch-command",
+    "typedPayloadDigest": "sha256:8fe9f4e71046887064cd0e6c357632897cc44820255f58dac1e7828e34001306",
+    "transportContentType": "application/vnd.competios.operation+json;version=1",
+    "rawTransportDigest": "sha256:0cb4b824cafa2ad5895b5ce7f097e7294b8ce8bec0ae6b79333c0e724065ca79",
+    "method": "POST",
+    "resource": "/game/executions"
+  },
+  "receipt": {
+    "requestID": "request",
+    "commandID": "launch-command",
+    "providerID": "provider",
+    "adapterID": "adapter",
+    "providerInstanceID": "instance-request",
+    "status": "accepted",
+    "safeReferences": ["receipt:request"]
+  },
+  "started": {
+    "id": "start",
+    "kind": "started",
+    "competitionID": "cup",
+    "contestID": "contest",
+    "requestID": "request",
+    "providerID": "provider",
+    "adapterID": "adapter",
+    "providerInstanceID": "instance-request",
+    "commandID": "start-command",
+    "occurredAt": "2026-08-12T12:01:00Z",
+    "typedPayloadDigest": "sha256:d0b8a20e361109a53f86cc1f7aebaa783c82a74ca96d843d04b1c7470565dd26"
+  },
+  "completed": {
+    "id": "result",
+    "kind": "completed",
+    "competitionID": "cup",
+    "contestID": "contest",
+    "requestID": "request",
+    "providerID": "provider",
+    "adapterID": "adapter",
+    "providerInstanceID": "instance-request",
+    "commandID": "result-command",
+    "occurredAt": "2026-08-12T12:02:00Z",
+    "result": {
+      "placements": [
+        {"slotOrdinal": 0, "entryID": "entry-a", "rank": 1, "status": "finished"},
+        {"slotOrdinal": 1, "entryID": "entry-b", "rank": 1, "status": "finished"}
+      ],
+      "evidence": {
+        "replay": {"state": "available", "reference": "replay:1"},
+        "recordedProvenance": {
+          "participantArtifactDigests": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+          "providerConfigurationDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "runtimeDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "rulesDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "limitProfileDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "seedDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "eventLogDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "executionPayloadDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      }
+    },
+    "typedPayloadDigest": "sha256:c75fb5c646f3b743b418436cf4021b409eea3cdc120ca7c4d289995306237390"
+  }
+}

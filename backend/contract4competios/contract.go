@@ -1,26 +1,28 @@
 // Package contract4competios defines the dependency-free boundary between
-// Competios and an automated game provider. It deliberately contains no JWT,
-// OAuth, HTTP, storage, or game-rule implementation.
+// Competios and a game provider. It contains no JWT, OAuth, HTTP, storage, or
+// game-rule implementation.
 package contract4competios
 
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
-// ExtensionID is Competios' stable global Firestore extension namespace.
-// Hosts and adapters use it without coupling to an implementation package.
+// ExtensionID is Competios' stable global extension namespace.
 const ExtensionID = "competios"
 
 var (
-	ErrCommandConflict  = errors.New("competios contract: command ID reused with a different payload")
-	ErrInvalidExecution = errors.New("competios contract: invalid execution")
-	ErrInvalidGrant     = errors.New("competios contract: invalid operation grant")
+	ErrCommandConflict     = errors.New("competios contract: command ID reused with a different payload")
+	ErrTokenReplayConflict = errors.New("competios contract: token ID reused with different claims")
+	ErrInvalidExecution    = errors.New("competios contract: invalid execution")
+	ErrInvalidGrant        = errors.New("competios contract: invalid operation grant")
 )
 
 type CompetitionID string
@@ -36,56 +38,174 @@ type PayloadDigest string
 type EventID string
 type ReplayReference string
 
-// ParticipantVersionRef is an immutable provider-owned participant version.
-// ArtifactDigest identifies an already-retained executable artifact; it never
-// carries source bytes, repository credentials, or an implementation language.
+type ExecutionProfileKind string
+
+const (
+	ExecutionProfileProviderExecuted     ExecutionProfileKind = "provider-executed"
+	ExecutionProfileParticipantScheduled ExecutionProfileKind = "participant-scheduled"
+)
+
 type ParticipantVersionRef struct {
 	ParticipantID        ParticipantID        `json:"participantID"`
 	ParticipantVersionID ParticipantVersionID `json:"participantVersionID"`
 	ArtifactDigest       ArtifactDigest       `json:"artifactDigest"`
 }
 
-// ExecutionSlot has a stable generic ordinal. A provider may assign colours,
-// bids, seats or other game semantics after accepting the request.
+// ExecutionSlot is an immutable provider-owned participant version. Its
+// ordinal is generic; the provider assigns colours, seats, bids, or sides.
 type ExecutionSlot struct {
 	Ordinal     uint16                `json:"ordinal"`
 	EntryID     EntryID               `json:"entryID"`
 	Participant ParticipantVersionRef `json:"participant"`
 }
 
-// ProviderConfiguration is versioned opaque provider data. It is intentionally
-// bytes rather than a map, so its exact representation participates in digest
-// vectors and cannot acquire a game-specific public schema here.
 type ProviderConfiguration struct {
 	Version string `json:"version"`
 	Data    []byte `json:"data"`
 }
 
-// CallbackResource is the provider's typed destination for service events.
-// It is a resource name, never a user-supplied URL.
+type ProviderExecutedProfile struct {
+	Slots         []ExecutionSlot       `json:"slots"`
+	Configuration ProviderConfiguration `json:"configuration"`
+	NotBefore     time.Time             `json:"notBefore,omitempty"`
+	Deadline      time.Time             `json:"deadline,omitempty"`
+}
+
+// ParticipantScheduledSlot represents a frozen human/team lineup without
+// reintroducing user IDs or game-specific side vocabulary.
+type ParticipantScheduledSlot struct {
+	Ordinal      uint16          `json:"ordinal"`
+	EntryID      EntryID         `json:"entryID"`
+	Participants []ParticipantID `json:"participants"`
+}
+
+type ParticipantScheduledProfile struct {
+	StartsAt time.Time                  `json:"startsAt"`
+	Slots    []ParticipantScheduledSlot `json:"slots"`
+}
+
+// ExecutionProfile is a closed discriminator. Exactly one matching payload is
+// present; there is no legacy lineup/side variant.
+type ExecutionProfile struct {
+	Kind                 ExecutionProfileKind         `json:"kind"`
+	ProviderExecuted     *ProviderExecutedProfile     `json:"providerExecuted,omitempty"`
+	ParticipantScheduled *ParticipantScheduledProfile `json:"participantScheduled,omitempty"`
+}
+
 type CallbackResource struct {
 	Resource string `json:"resource"`
 }
 
-// ExecutionRequest is one immutable ordered N-slot provider operation.
-// TypedPayloadDigest is over the deterministic typed payload encoding. The
-// separately named transport digest is calculated over exact content type and
-// raw HTTP bytes by DigestRawTransportBody; neither is interchangeable.
+type PublicArtifactKind string
+
+const PublicArtifactTerminalReplay PublicArtifactKind = "terminal-replay"
+
+// ExecutionRequestPayload is the complete canonical digest input. It excludes
+// only TypedPayloadDigest, preventing a self-referential hash.
+type ExecutionRequestPayload struct {
+	ID                       ExecutionRequestID   `json:"id"`
+	ProviderID               ProviderID           `json:"providerID"`
+	AdapterID                AdapterID            `json:"adapterID"`
+	CompetitionID            CompetitionID        `json:"competitionID"`
+	ContestID                ContestID            `json:"contestID"`
+	CommandID                CommandID            `json:"commandID"`
+	GameID                   GameID               `json:"gameID"`
+	RulesetVersion           RulesetVersion       `json:"rulesetVersion"`
+	Profile                  ExecutionProfile     `json:"profile"`
+	RequestedPublicArtifacts []PublicArtifactKind `json:"requestedPublicArtifacts,omitempty"`
+	Callback                 CallbackResource     `json:"callback"`
+}
+
 type ExecutionRequest struct {
-	ID                 ExecutionRequestID    `json:"id"`
-	ProviderID         ProviderID            `json:"providerID"`
-	AdapterID          AdapterID             `json:"adapterID"`
-	CompetitionID      CompetitionID         `json:"competitionID"`
-	ContestID          ContestID             `json:"contestID"`
-	CommandID          CommandID             `json:"commandID"`
-	GameID             GameID                `json:"gameID"`
-	RulesetVersion     RulesetVersion        `json:"rulesetVersion"`
-	Slots              []ExecutionSlot       `json:"slots"`
-	Configuration      ProviderConfiguration `json:"configuration"`
-	NotBefore          time.Time             `json:"notBefore,omitempty"`
-	Deadline           time.Time             `json:"deadline,omitempty"`
-	Callback           CallbackResource      `json:"callback"`
-	TypedPayloadDigest PayloadDigest         `json:"typedPayloadDigest"`
+	ID                       ExecutionRequestID   `json:"id"`
+	ProviderID               ProviderID           `json:"providerID"`
+	AdapterID                AdapterID            `json:"adapterID"`
+	CompetitionID            CompetitionID        `json:"competitionID"`
+	ContestID                ContestID            `json:"contestID"`
+	CommandID                CommandID            `json:"commandID"`
+	GameID                   GameID               `json:"gameID"`
+	RulesetVersion           RulesetVersion       `json:"rulesetVersion"`
+	Profile                  ExecutionProfile     `json:"profile"`
+	RequestedPublicArtifacts []PublicArtifactKind `json:"requestedPublicArtifacts,omitempty"`
+	Callback                 CallbackResource     `json:"callback"`
+	TypedPayloadDigest       PayloadDigest        `json:"typedPayloadDigest"`
+}
+
+func NewExecutionRequest(payload ExecutionRequestPayload) (ExecutionRequest, error) {
+	digest, err := DigestExecutionRequestPayload(payload)
+	if err != nil {
+		return ExecutionRequest{}, err
+	}
+	request := ExecutionRequest{
+		ID: payload.ID, ProviderID: payload.ProviderID, AdapterID: payload.AdapterID,
+		CompetitionID: payload.CompetitionID, ContestID: payload.ContestID,
+		CommandID: payload.CommandID, GameID: payload.GameID,
+		RulesetVersion: payload.RulesetVersion, Profile: payload.Profile,
+		RequestedPublicArtifacts: append([]PublicArtifactKind(nil), payload.RequestedPublicArtifacts...),
+		Callback:                 payload.Callback, TypedPayloadDigest: digest,
+	}
+	if err := ValidateExecutionRequest(request); err != nil {
+		return ExecutionRequest{}, err
+	}
+	return request, nil
+}
+
+func (r ExecutionRequest) Payload() ExecutionRequestPayload {
+	return ExecutionRequestPayload{
+		ID: r.ID, ProviderID: r.ProviderID, AdapterID: r.AdapterID,
+		CompetitionID: r.CompetitionID, ContestID: r.ContestID,
+		CommandID: r.CommandID, GameID: r.GameID,
+		RulesetVersion: r.RulesetVersion, Profile: r.Profile,
+		RequestedPublicArtifacts: append([]PublicArtifactKind(nil), r.RequestedPublicArtifacts...), Callback: r.Callback,
+	}
+}
+
+const executionRequestDigestDomain = "competios.execution-request-payload.v1"
+const executionEventDigestDomain = "competios.execution-event-payload.v1"
+const rawTransportDigestDomain = "competios.raw-transport-body.v1"
+
+func DigestExecutionRequestPayload(payload ExecutionRequestPayload) (PayloadDigest, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return digestParts(executionRequestDigestDomain, encoded), nil
+}
+
+// DigestRawTransportBody binds the exact versioned content type and exact raw
+// body bytes. Length prefixes make component boundaries unambiguous.
+func DigestRawTransportBody(contentType string, body []byte) PayloadDigest {
+	return digestParts(rawTransportDigestDomain, []byte(contentType), body)
+}
+
+func digestParts(domain string, parts ...[]byte) PayloadDigest {
+	h := sha256.New()
+	writeDigestPart(h, []byte(domain))
+	for _, part := range parts {
+		writeDigestPart(h, part)
+	}
+	return PayloadDigest("sha256:" + hex.EncodeToString(h.Sum(nil)))
+}
+
+type digestWriter interface{ Write([]byte) (int, error) }
+
+func writeDigestPart(w digestWriter, value []byte) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+	_, _ = w.Write(size[:])
+	_, _ = w.Write(value)
+}
+
+func validSHA256Digest(value string) bool {
+	if len(value) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, char := range value[len("sha256:"):] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 type ReceiptStatus string
@@ -95,8 +215,6 @@ const (
 	ReceiptReplayed ReceiptStatus = "replayed"
 )
 
-// ExecutionReceipt is the sole immutable response to a successfully accepted
-// execution command. SafeReferences may refer only to provider-public artifacts.
 type ExecutionReceipt struct {
 	RequestID          ExecutionRequestID `json:"requestID"`
 	CommandID          CommandID          `json:"commandID"`
@@ -107,21 +225,50 @@ type ExecutionReceipt struct {
 	SafeReferences     []string           `json:"safeReferences,omitempty"`
 }
 
-// ExecutionProvider must persist durable command plus exact typed payload
-// identity. A fresh transport grant can therefore retry an unknown operation;
-// changed content under the same command must return ErrCommandConflict.
 type ExecutionProvider interface {
 	LaunchExecution(context.Context, VerifiedOperationGrant, ExecutionRequest) (ExecutionReceipt, error)
 }
 
-type LifecycleKind string
+func ValidateExecutionReceiptForRequest(receipt ExecutionReceipt, request ExecutionRequest) error {
+	if ValidateExecutionRequest(request) != nil || receipt.RequestID != request.ID || receipt.CommandID != request.CommandID || receipt.ProviderID != request.ProviderID || receipt.AdapterID != request.AdapterID || receipt.ProviderInstanceID == "" {
+		return ErrInvalidExecution
+	}
+	switch receipt.Status {
+	case ReceiptAccepted, ReceiptReplayed:
+	default:
+		return ErrInvalidExecution
+	}
+	seen := map[string]bool{}
+	for _, reference := range receipt.SafeReferences {
+		if reference == "" || seen[reference] {
+			return ErrInvalidExecution
+		}
+		seen[reference] = true
+	}
+	return nil
+}
+
+// LifecycleEventKind contains only facts submitted after the launch receipt.
+// The accepted launch receipt itself is the canonical queued fact.
+type LifecycleEventKind string
 
 const (
-	LifecycleQueued    LifecycleKind = "queued"
-	LifecycleStarted   LifecycleKind = "started"
-	LifecycleCompleted LifecycleKind = "completed"
-	LifecycleFailed    LifecycleKind = "failed"
-	LifecycleCancelled LifecycleKind = "cancelled"
+	LifecycleEventStarted   LifecycleEventKind = "started"
+	LifecycleEventCompleted LifecycleEventKind = "completed"
+	LifecycleEventFailed    LifecycleEventKind = "failed"
+	LifecycleEventCancelled LifecycleEventKind = "cancelled"
+)
+
+// ExecutionState is the consumer's persisted lifecycle state. Accepted is
+// entered only from an accepted/replayed launch receipt, never from an event.
+type ExecutionState string
+
+const (
+	ExecutionStateAccepted  ExecutionState = "accepted"
+	ExecutionStateStarted   ExecutionState = "started"
+	ExecutionStateCompleted ExecutionState = "completed"
+	ExecutionStateFailed    ExecutionState = "failed"
+	ExecutionStateCancelled ExecutionState = "cancelled"
 )
 
 type PlacementStatus string
@@ -133,11 +280,11 @@ const (
 	PlacementStatusDidNotFinish PlacementStatus = "did-not-finish"
 )
 
-// Placement order is deterministic. Equal Rank values are valid ties.
 type Placement struct {
-	EntryID EntryID         `json:"entryID"`
-	Rank    uint16          `json:"rank"`
-	Status  PlacementStatus `json:"status"`
+	SlotOrdinal uint16          `json:"slotOrdinal"`
+	EntryID     EntryID         `json:"entryID"`
+	Rank        uint16          `json:"rank"`
+	Status      PlacementStatus `json:"status"`
 }
 
 type ReplayPublicationState string
@@ -153,8 +300,6 @@ type TerminalReplay struct {
 	Reference ReplayReference        `json:"reference,omitempty"`
 }
 
-// RecordedProvenance contains digest facts only. It is recorded provenance,
-// not a detached signature and never carries source bytes or bearer material.
 type RecordedProvenance struct {
 	ParticipantArtifactDigests  []ArtifactDigest `json:"participantArtifactDigests"`
 	ProviderConfigurationDigest ArtifactDigest   `json:"providerConfigurationDigest"`
@@ -164,24 +309,40 @@ type RecordedProvenance struct {
 	SeedDigest                  ArtifactDigest   `json:"seedDigest"`
 	EventLogDigest              ArtifactDigest   `json:"eventLogDigest"`
 	ExecutionPayloadDigest      PayloadDigest    `json:"executionPayloadDigest"`
-	ResultPayloadDigest         PayloadDigest    `json:"resultPayloadDigest"`
 }
 
-type ExecutionResult struct {
-	ID                 EventID            `json:"id"`
-	Placements         []Placement        `json:"placements"`
-	CompletedAt        time.Time          `json:"completedAt"`
-	FailureCode        string             `json:"failureCode,omitempty"`
-	AdjudicationCode   string             `json:"adjudicationCode,omitempty"`
+type CompletionEvidence struct {
 	Replay             TerminalReplay     `json:"replay"`
 	RecordedProvenance RecordedProvenance `json:"recordedProvenance"`
 }
 
-// ExecutionEvent expresses queued/start/terminal provider evidence. A result
-// is present only for completed, failed, or cancelled terminal events.
-type ExecutionEvent struct {
+type ExecutionResult struct {
+	Placements []Placement        `json:"placements"`
+	Evidence   CompletionEvidence `json:"evidence"`
+}
+
+// FailureEvidence contains only facts that actually exist at the failed phase.
+// A pre-start cancellation legitimately has nil Evidence.
+type FailureEvidence struct {
+	RuntimeDigest          ArtifactDigest  `json:"runtimeDigest,omitempty"`
+	EventLogDigest         ArtifactDigest  `json:"eventLogDigest,omitempty"`
+	ExecutionPayloadDigest PayloadDigest   `json:"executionPayloadDigest,omitempty"`
+	Replay                 *TerminalReplay `json:"replay,omitempty"`
+}
+
+// ExecutionFailure models failed/cancelled states without fabricated results,
+// placements, runtime facts, seeds, event logs, or replays.
+type ExecutionFailure struct {
+	Code             string           `json:"code"`
+	AdjudicationCode string           `json:"adjudicationCode,omitempty"`
+	Evidence         *FailureEvidence `json:"evidence,omitempty"`
+}
+
+// ExecutionEventPayload is the complete event digest input. Completed carries
+// Result; failed/cancelled carry Failure; started carries neither.
+type ExecutionEventPayload struct {
 	ID                 EventID            `json:"id"`
-	Kind               LifecycleKind      `json:"kind"`
+	Kind               LifecycleEventKind `json:"kind"`
 	CompetitionID      CompetitionID      `json:"competitionID"`
 	ContestID          ContestID          `json:"contestID"`
 	RequestID          ExecutionRequestID `json:"requestID"`
@@ -191,6 +352,59 @@ type ExecutionEvent struct {
 	CommandID          CommandID          `json:"commandID"`
 	OccurredAt         time.Time          `json:"occurredAt"`
 	Result             *ExecutionResult   `json:"result,omitempty"`
+	Failure            *ExecutionFailure  `json:"failure,omitempty"`
+}
+
+type ExecutionEvent struct {
+	ID                 EventID            `json:"id"`
+	Kind               LifecycleEventKind `json:"kind"`
+	CompetitionID      CompetitionID      `json:"competitionID"`
+	ContestID          ContestID          `json:"contestID"`
+	RequestID          ExecutionRequestID `json:"requestID"`
+	ProviderID         ProviderID         `json:"providerID"`
+	AdapterID          AdapterID          `json:"adapterID"`
+	ProviderInstanceID ProviderInstanceID `json:"providerInstanceID"`
+	CommandID          CommandID          `json:"commandID"`
+	OccurredAt         time.Time          `json:"occurredAt"`
+	Result             *ExecutionResult   `json:"result,omitempty"`
+	Failure            *ExecutionFailure  `json:"failure,omitempty"`
+	TypedPayloadDigest PayloadDigest      `json:"typedPayloadDigest"`
+}
+
+func NewExecutionEvent(payload ExecutionEventPayload) (ExecutionEvent, error) {
+	digest, err := DigestExecutionEventPayload(payload)
+	if err != nil {
+		return ExecutionEvent{}, err
+	}
+	event := ExecutionEvent{
+		ID: payload.ID, Kind: payload.Kind, CompetitionID: payload.CompetitionID,
+		ContestID: payload.ContestID, RequestID: payload.RequestID,
+		ProviderID: payload.ProviderID, AdapterID: payload.AdapterID,
+		ProviderInstanceID: payload.ProviderInstanceID, CommandID: payload.CommandID,
+		OccurredAt: payload.OccurredAt, Result: payload.Result, Failure: payload.Failure,
+		TypedPayloadDigest: digest,
+	}
+	if err := ValidateExecutionEvent(event); err != nil {
+		return ExecutionEvent{}, err
+	}
+	return event, nil
+}
+
+func (e ExecutionEvent) Payload() ExecutionEventPayload {
+	return ExecutionEventPayload{
+		ID: e.ID, Kind: e.Kind, CompetitionID: e.CompetitionID, ContestID: e.ContestID,
+		RequestID: e.RequestID, ProviderID: e.ProviderID, AdapterID: e.AdapterID,
+		ProviderInstanceID: e.ProviderInstanceID, CommandID: e.CommandID,
+		OccurredAt: e.OccurredAt, Result: e.Result, Failure: e.Failure,
+	}
+}
+
+func DigestExecutionEventPayload(payload ExecutionEventPayload) (PayloadDigest, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return digestParts(executionEventDigestDomain, encoded), nil
 }
 
 type EventAcknowledgementStatus string
@@ -208,74 +422,238 @@ type ExecutionEventSink interface {
 	SubmitExecutionEvent(context.Context, VerifiedOperationGrant, ExecutionEvent) (EventAcknowledgement, error)
 }
 
-// DigestTypedPayload deterministically hashes a typed public contract payload.
-// Callers must avoid maps in interoperable payloads; opaque configuration is
-// bytes specifically so the contract does not claim a JSON canonicalizer.
-func DigestTypedPayload(value any) (PayloadDigest, error) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return "", err
+func ValidateEventAcknowledgement(value EventAcknowledgement) error {
+	switch value.Status {
+	case EventAcknowledgementAccepted, EventAcknowledgementReplayed:
+		return nil
+	default:
+		return ErrInvalidExecution
 	}
-	return PayloadDigest("sha256:" + digest(encoded)), nil
 }
-
-// DigestRawTransportBody is distinct from DigestTypedPayload. It commits to
-// the exact versioned content type and raw transport bytes before parsing.
-func DigestRawTransportBody(contentType string, body []byte) PayloadDigest {
-	return PayloadDigest("sha256:" + digest(append(append([]byte(contentType), '\n'), body...)))
-}
-
-func digest(value []byte) string { sum := sha256.Sum256(value); return hex.EncodeToString(sum[:]) }
 
 func ValidateExecutionRequest(value ExecutionRequest) error {
-	if value.ID == "" || value.ProviderID == "" || value.AdapterID == "" || value.CompetitionID == "" || value.ContestID == "" || value.CommandID == "" || value.GameID == "" || value.RulesetVersion == "" || value.Configuration.Version == "" || value.Callback.Resource == "" || value.TypedPayloadDigest == "" || len(value.Slots) == 0 {
+	if value.ID == "" || value.ProviderID == "" || value.AdapterID == "" || value.CompetitionID == "" || value.ContestID == "" || value.CommandID == "" || value.GameID == "" || value.RulesetVersion == "" || value.Callback.Resource == "" || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidExecution
 	}
-	if !value.Deadline.IsZero() && !value.NotBefore.IsZero() && value.Deadline.Before(value.NotBefore) {
-		return ErrInvalidExecution
-	}
-	seenOrdinal, seenEntry, seenVersion := map[uint16]bool{}, map[EntryID]bool{}, map[ParticipantVersionID]bool{}
-	for index, slot := range value.Slots {
-		if slot.Ordinal != uint16(index) || slot.EntryID == "" || slot.Participant.ParticipantID == "" || slot.Participant.ParticipantVersionID == "" || slot.Participant.ArtifactDigest == "" || seenOrdinal[slot.Ordinal] || seenEntry[slot.EntryID] || seenVersion[slot.Participant.ParticipantVersionID] {
+	seenArtifacts := map[PublicArtifactKind]bool{}
+	for _, artifact := range value.RequestedPublicArtifacts {
+		if artifact != PublicArtifactTerminalReplay || seenArtifacts[artifact] {
 			return ErrInvalidExecution
 		}
-		seenOrdinal[slot.Ordinal], seenEntry[slot.EntryID], seenVersion[slot.Participant.ParticipantVersionID] = true, true, true
+		seenArtifacts[artifact] = true
+	}
+	if err := validateExecutionProfile(value.Profile); err != nil {
+		return err
+	}
+	digest, err := DigestExecutionRequestPayload(value.Payload())
+	if err != nil || digest != value.TypedPayloadDigest {
+		return ErrInvalidExecution
 	}
 	return nil
 }
 
-func ValidateLifecycleEvent(value ExecutionEvent) error {
-	if value.ID == "" || value.Kind == "" || value.CompetitionID == "" || value.ContestID == "" || value.RequestID == "" || value.ProviderID == "" || value.AdapterID == "" || value.ProviderInstanceID == "" || value.CommandID == "" || value.OccurredAt.IsZero() {
+func validateExecutionProfile(profile ExecutionProfile) error {
+	switch profile.Kind {
+	case ExecutionProfileProviderExecuted:
+		if profile.ProviderExecuted == nil || profile.ParticipantScheduled != nil {
+			return ErrInvalidExecution
+		}
+		value := profile.ProviderExecuted
+		if value.Configuration.Version == "" || len(value.Slots) == 0 || !value.Deadline.IsZero() && !value.NotBefore.IsZero() && value.Deadline.Before(value.NotBefore) {
+			return ErrInvalidExecution
+		}
+		seenOrdinal, seenEntry, seenVersion := map[uint16]bool{}, map[EntryID]bool{}, map[ParticipantVersionID]bool{}
+		for index, slot := range value.Slots {
+			if slot.Ordinal != uint16(index) || slot.EntryID == "" || slot.Participant.ParticipantID == "" || slot.Participant.ParticipantVersionID == "" || !validSHA256Digest(string(slot.Participant.ArtifactDigest)) || seenOrdinal[slot.Ordinal] || seenEntry[slot.EntryID] || seenVersion[slot.Participant.ParticipantVersionID] {
+				return ErrInvalidExecution
+			}
+			seenOrdinal[slot.Ordinal], seenEntry[slot.EntryID], seenVersion[slot.Participant.ParticipantVersionID] = true, true, true
+		}
+	case ExecutionProfileParticipantScheduled:
+		if profile.ParticipantScheduled == nil || profile.ProviderExecuted != nil || profile.ParticipantScheduled.StartsAt.IsZero() || len(profile.ParticipantScheduled.Slots) == 0 {
+			return ErrInvalidExecution
+		}
+		seenEntry, seenParticipant := map[EntryID]bool{}, map[ParticipantID]bool{}
+		for index, slot := range profile.ParticipantScheduled.Slots {
+			if slot.Ordinal != uint16(index) || slot.EntryID == "" || len(slot.Participants) == 0 || seenEntry[slot.EntryID] {
+				return ErrInvalidExecution
+			}
+			seenEntry[slot.EntryID] = true
+			for _, participant := range slot.Participants {
+				if participant == "" || seenParticipant[participant] {
+					return ErrInvalidExecution
+				}
+				seenParticipant[participant] = true
+			}
+		}
+	default:
 		return ErrInvalidExecution
 	}
-	terminal := value.Kind == LifecycleCompleted || value.Kind == LifecycleFailed || value.Kind == LifecycleCancelled
-	if terminal != (value.Result != nil) {
+	return nil
+}
+
+func ValidateExecutionEvent(value ExecutionEvent) error {
+	if value.ID == "" || value.CompetitionID == "" || value.ContestID == "" || value.RequestID == "" || value.ProviderID == "" || value.AdapterID == "" || value.ProviderInstanceID == "" || value.CommandID == "" || value.OccurredAt.IsZero() || !validSHA256Digest(string(value.TypedPayloadDigest)) {
 		return ErrInvalidExecution
 	}
-	if !terminal {
+	switch value.Kind {
+	case LifecycleEventStarted:
+		if value.Result != nil || value.Failure != nil {
+			return ErrInvalidExecution
+		}
+	case LifecycleEventCompleted:
+		if value.Result == nil || value.Failure != nil || len(value.Result.Placements) == 0 || len(value.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests) != len(value.Result.Placements) || validateCompletionEvidence(value.Result.Evidence) != nil || validatePlacements(value.Result.Placements) != nil {
+			return ErrInvalidExecution
+		}
+	case LifecycleEventFailed, LifecycleEventCancelled:
+		if value.Result != nil || value.Failure == nil || value.Failure.Code == "" || validateFailureEvidence(value.Failure.Evidence) != nil {
+			return ErrInvalidExecution
+		}
+	default:
+		return ErrInvalidExecution
+	}
+	digest, err := DigestExecutionEventPayload(value.Payload())
+	if err != nil || digest != value.TypedPayloadDigest {
+		return ErrInvalidExecution
+	}
+	return nil
+}
+
+func validatePlacements(placements []Placement) error {
+	seenEntries, seenSlots := map[EntryID]bool{}, map[uint16]bool{}
+	var previous uint16
+	var previousSlot uint16
+	for index, placement := range placements {
+		if placement.EntryID == "" || int(placement.SlotOrdinal) >= len(placements) || placement.Rank == 0 || seenEntries[placement.EntryID] || seenSlots[placement.SlotOrdinal] || placement.Rank < previous || index == 0 && placement.Rank != 1 || index > 0 && placement.Rank > previous && placement.Rank != uint16(index+1) || index > 0 && placement.Rank == previous && placement.SlotOrdinal <= previousSlot {
+			return ErrInvalidExecution
+		}
+		switch placement.Status {
+		case PlacementStatusFinished, PlacementStatusForfeited, PlacementStatusDisqualified, PlacementStatusDidNotFinish:
+		default:
+			return ErrInvalidExecution
+		}
+		seenEntries[placement.EntryID], seenSlots[placement.SlotOrdinal], previous, previousSlot = true, true, placement.Rank, placement.SlotOrdinal
+	}
+	return nil
+}
+
+// ValidateExecutionEventForExecution binds an otherwise valid lifecycle event
+// to the immutable request and provider receipt that created its instance. For
+// a completed event it also proves that every frozen slot appears exactly once
+// and, for provider-executed contests, that the provenance artifact identities
+// are the exact request artifacts in slot order.
+func ValidateExecutionEventForExecution(event ExecutionEvent, request ExecutionRequest, receipt ExecutionReceipt) error {
+	if ValidateExecutionEvent(event) != nil || ValidateExecutionReceiptForRequest(receipt, request) != nil || event.CompetitionID != request.CompetitionID || event.ContestID != request.ContestID || event.RequestID != request.ID || event.ProviderID != request.ProviderID || event.AdapterID != request.AdapterID || event.ProviderInstanceID != receipt.ProviderInstanceID {
+		return ErrInvalidExecution
+	}
+	if event.Kind != LifecycleEventCompleted {
 		return nil
 	}
-	result := value.Result
-	if result.ID == "" || result.CompletedAt.IsZero() || len(result.Placements) == 0 || result.Replay.State == "" {
+
+	var entries []EntryID
+	var artifactDigests []ArtifactDigest
+	switch request.Profile.Kind {
+	case ExecutionProfileProviderExecuted:
+		entries = make([]EntryID, len(request.Profile.ProviderExecuted.Slots))
+		artifactDigests = make([]ArtifactDigest, len(request.Profile.ProviderExecuted.Slots))
+		for index, slot := range request.Profile.ProviderExecuted.Slots {
+			entries[index] = slot.EntryID
+			artifactDigests[index] = slot.Participant.ArtifactDigest
+		}
+	case ExecutionProfileParticipantScheduled:
+		entries = make([]EntryID, len(request.Profile.ParticipantScheduled.Slots))
+		for index, slot := range request.Profile.ParticipantScheduled.Slots {
+			entries[index] = slot.EntryID
+		}
+	default:
 		return ErrInvalidExecution
 	}
-	if result.Replay.State == ReplayAvailable && result.Replay.Reference == "" || result.Replay.State != ReplayAvailable && result.Replay.Reference != "" {
+	if event.Result == nil || len(event.Result.Placements) != len(entries) {
 		return ErrInvalidExecution
 	}
-	seen := map[EntryID]bool{}
-	for _, placement := range result.Placements {
-		if placement.EntryID == "" || placement.Rank == 0 || placement.Status == "" || seen[placement.EntryID] {
+	for _, placement := range event.Result.Placements {
+		if int(placement.SlotOrdinal) >= len(entries) || placement.EntryID != entries[placement.SlotOrdinal] {
 			return ErrInvalidExecution
 		}
-		seen[placement.EntryID] = true
+	}
+	if artifactDigests != nil {
+		actual := event.Result.Evidence.RecordedProvenance.ParticipantArtifactDigests
+		if len(actual) != len(artifactDigests) {
+			return ErrInvalidExecution
+		}
+		for index := range artifactDigests {
+			if actual[index] != artifactDigests[index] {
+				return ErrInvalidExecution
+			}
+		}
 	}
 	return nil
 }
 
-func ValidateLifecycleTransition(previous, next LifecycleKind) error {
-	valid := map[LifecycleKind]map[LifecycleKind]bool{
-		LifecycleQueued:  {LifecycleStarted: true, LifecycleCancelled: true, LifecycleFailed: true},
-		LifecycleStarted: {LifecycleCompleted: true, LifecycleCancelled: true, LifecycleFailed: true},
+func validateCompletionEvidence(value CompletionEvidence) error {
+	if len(value.RecordedProvenance.ParticipantArtifactDigests) == 0 || !validSHA256Digest(string(value.RecordedProvenance.ProviderConfigurationDigest)) || !validSHA256Digest(string(value.RecordedProvenance.RuntimeDigest)) || !validSHA256Digest(string(value.RecordedProvenance.RulesDigest)) || !validSHA256Digest(string(value.RecordedProvenance.LimitProfileDigest)) || !validSHA256Digest(string(value.RecordedProvenance.SeedDigest)) || !validSHA256Digest(string(value.RecordedProvenance.EventLogDigest)) || !validSHA256Digest(string(value.RecordedProvenance.ExecutionPayloadDigest)) {
+		return ErrInvalidExecution
+	}
+	for _, digest := range value.RecordedProvenance.ParticipantArtifactDigests {
+		if !validSHA256Digest(string(digest)) {
+			return ErrInvalidExecution
+		}
+	}
+	switch value.Replay.State {
+	case ReplayAvailable:
+		if value.Replay.Reference == "" {
+			return ErrInvalidExecution
+		}
+	case ReplayProcessing, ReplayUnavailable:
+		if value.Replay.Reference != "" {
+			return ErrInvalidExecution
+		}
+	default:
+		return ErrInvalidExecution
+	}
+	return nil
+}
+
+func validateFailureEvidence(value *FailureEvidence) error {
+	if value == nil {
+		return nil
+	}
+	if value.RuntimeDigest == "" && value.EventLogDigest == "" && value.ExecutionPayloadDigest == "" && value.Replay == nil {
+		return ErrInvalidExecution
+	}
+	if value.RuntimeDigest != "" && !validSHA256Digest(string(value.RuntimeDigest)) || value.EventLogDigest != "" && !validSHA256Digest(string(value.EventLogDigest)) || value.ExecutionPayloadDigest != "" && !validSHA256Digest(string(value.ExecutionPayloadDigest)) {
+		return ErrInvalidExecution
+	}
+	if value.Replay == nil {
+		return nil
+	}
+	switch value.Replay.State {
+	case ReplayAvailable:
+		if value.Replay.Reference == "" {
+			return ErrInvalidExecution
+		}
+	case ReplayProcessing, ReplayUnavailable:
+		if value.Replay.Reference != "" {
+			return ErrInvalidExecution
+		}
+	default:
+		return ErrInvalidExecution
+	}
+	return nil
+}
+
+func ValidateLifecycleTransition(previous ExecutionState, next LifecycleEventKind) error {
+	valid := map[ExecutionState]map[LifecycleEventKind]bool{
+		ExecutionStateAccepted: {
+			LifecycleEventStarted:   true,
+			LifecycleEventFailed:    true,
+			LifecycleEventCancelled: true,
+		},
+		ExecutionStateStarted: {
+			LifecycleEventCompleted: true,
+			LifecycleEventFailed:    true,
+			LifecycleEventCancelled: true,
+		},
 	}
 	if !valid[previous][next] {
 		return fmt.Errorf("%w: %s to %s", ErrInvalidTransition, previous, next)
