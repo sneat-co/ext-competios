@@ -13,9 +13,11 @@ a game integrates against.
 |---|---|
 | [`backend/contract4competios`](backend/contract4competios) | The contract: discriminated scheduled/provider-executed requests, immutable N-slot execution receipts and lifecycle evidence, scoped-operation token ports, and staged source-plan/retention/publication/disclosure facts, plus capabilities, projections and drafts. |
 | [`backend/contract4competiostest`](backend/contract4competiostest) | Positive and adversarial execution, event-delivery, grant and source-artifact conformance harnesses an implementor runs against its own adapter. |
+| [`grants`](grants) | Season 1 (Decision 0007) implementation of `contract4competios`'s `OperationGrantIssuer`/`OperationGrantVerifier` ports: HMAC-signed `at+jwt` tokens, per-direction purpose separation, and in-memory/dalgo-backed replay stores. Its own module, depending on `backend` plus `golang-jwt/jwt` and `dalgo` — the contract module itself stays dependency-free. |
 
 ```
 go get github.com/sneat-co/ext-competios/backend
+go get github.com/sneat-co/ext-competios/grants
 ```
 
 ## Why it is public, and why it has no dependencies
