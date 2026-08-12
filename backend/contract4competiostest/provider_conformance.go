@@ -49,6 +49,7 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 			violations = append(violations, fmt.Errorf("populated launch %s valid retry = %+v: %v", name, replayed, replayErr))
 		}
 	}
+	violations = append(violations, checkPopulatedLaunchBinderBeforeReplay(provider, request, first)...)
 
 	for name, mutate := range requestPayloadMutations(request) {
 		mutationProvider := factory()
@@ -105,6 +106,32 @@ func CheckExecutionProviderWithRequest(factory ExecutionProviderFactory, request
 		}
 	}
 	return violations
+}
+
+func checkPopulatedLaunchBinderBeforeReplay(provider contract4competios.ExecutionProvider, request contract4competios.ExecutionRequest, original contract4competios.ExecutionReceipt) []error {
+	ctx := context.Background()
+	var violations []error
+	for _, probe := range launchBinderReplayProbes(request) {
+		if err := contract4competios.ValidateLaunchGrantForRequest(probe.grant, launchRouteFixture(request), request); !errors.Is(err, contract4competios.ErrInvalidGrant) {
+			violations = append(violations, fmt.Errorf("populated launch %s operation-specific binder error = %v, want ErrInvalidGrant", probe.name, err))
+			continue
+		}
+		badReceipt, launchErr := provider.LaunchExecution(ctx, probe.grant, request)
+		if !errors.Is(launchErr, contract4competios.ErrInvalidGrant) || !emptyExecutionReceipt(badReceipt) {
+			violations = append(violations, fmt.Errorf("populated launch %s binder probe = %+v: %v, want empty receipt and ErrInvalidGrant", probe.name, badReceipt, launchErr))
+		}
+		replayed, replayErr := provider.LaunchExecution(ctx, launchGrantFixture(request, "populated-launch-binder-retry-"+probe.name, "key-rotated"), request)
+		if replayErr != nil || replayed.Status != contract4competios.ReceiptReplayed || !sameReceiptEvidence(original, replayed) {
+			violations = append(violations, fmt.Errorf("populated launch %s valid retry = %+v: %v", probe.name, replayed, replayErr))
+		}
+	}
+	return violations
+}
+
+func launchBinderReplayProbes(request contract4competios.ExecutionRequest) []crossPurposeReplayProbe {
+	target := launchGrantFixture(request, "launch-binder-target", "key-a").Claims
+	foreign := eventGrantFixture(startFixture("foreign-instance-required-by-started-purpose"), "launch-binder-foreign", "key-a").Claims
+	return crossPurposeReplayProbes(target, foreign)
 }
 
 func emptyExecutionReceipt(value contract4competios.ExecutionReceipt) bool {

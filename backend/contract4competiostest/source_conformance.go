@@ -486,12 +486,13 @@ type crossPurposeReplayProbe struct {
 	grant contract4competios.VerifiedOperationGrant
 }
 
-// crossPurposeReplayProbes covers both useful representations of a source
-// stage crossing. purpose-only changes exactly purpose/scope on the target
-// grant; because source claims are a closed discriminator, it is deliberately
-// structurally invalid. foreign-valid keeps a complete valid foreign-purpose
-// claim set but rebinds its command, typed/raw body, provider/adapter and route
-// facts to the populated target operation. Both must fail before replay.
+// crossPurposeReplayProbes covers both useful representations of an operation
+// crossing. purpose-only changes purpose/scope on the target grant (and uses a
+// fresh token identity); closed discriminators can make that shape invalid.
+// foreign-valid keeps a complete valid foreign-purpose claim set but rebinds
+// every stable target request/body/route fact that is shared by both purposes.
+// Purpose-specific discriminator fields intentionally remain foreign. Both
+// probes must fail the target operation binder before command replay.
 func crossPurposeReplayProbes(target, foreign contract4competios.OperationGrant) []crossPurposeReplayProbe {
 	purposeOnly := target
 	purposeOnly.Purpose, purposeOnly.Scope = foreign.Purpose, foreign.Scope
@@ -503,10 +504,11 @@ func crossPurposeReplayProbes(target, foreign contract4competios.OperationGrant)
 	foreignValid.TokenID = "foreign-valid-crossing"
 	foreignValid.IssuedAt, foreignValid.NotBefore, foreignValid.ExpiresAt = target.IssuedAt, target.NotBefore, target.ExpiresAt
 	foreignValid.ProviderID, foreignValid.AdapterID = target.ProviderID, target.AdapterID
+	foreignValid.CompetitionID, foreignValid.ContestID, foreignValid.RequestID = target.CompetitionID, target.ContestID, target.RequestID
 	foreignValid.CommandID, foreignValid.TypedPayloadDigest = target.CommandID, target.TypedPayloadDigest
 	foreignValid.TransportContentType, foreignValid.RawTransportDigest = target.TransportContentType, target.RawTransportDigest
 	foreignValid.Method, foreignValid.Resource = target.Method, target.Resource
-	if contract4competios.ValidateOperationGrant(foreignValid) != nil || foreignValid.Purpose == target.Purpose || foreignValid.CommandID != target.CommandID || foreignValid.TypedPayloadDigest != target.TypedPayloadDigest || foreignValid.RawTransportDigest != target.RawTransportDigest || foreignValid.TransportContentType != target.TransportContentType || foreignValid.Method != target.Method || foreignValid.Resource != target.Resource {
+	if contract4competios.ValidateOperationGrant(foreignValid) != nil || foreignValid.Purpose == target.Purpose || foreignValid.ProviderID != target.ProviderID || foreignValid.AdapterID != target.AdapterID || foreignValid.CompetitionID != target.CompetitionID || foreignValid.ContestID != target.ContestID || foreignValid.RequestID != target.RequestID || foreignValid.CommandID != target.CommandID || foreignValid.TypedPayloadDigest != target.TypedPayloadDigest || foreignValid.RawTransportDigest != target.RawTransportDigest || foreignValid.TransportContentType != target.TransportContentType || foreignValid.Method != target.Method || foreignValid.Resource != target.Resource {
 		panic("invalid cross-purpose replay fixture")
 	}
 	return []crossPurposeReplayProbe{

@@ -184,6 +184,23 @@ func (p *replayBeforeAuthorityProvider) LaunchExecution(ctx context.Context, gra
 	return p.delegate.LaunchExecution(ctx, grant, request)
 }
 
+// operationBinderAfterReplayProvider performs generic grant validation, but
+// deliberately replays a populated command with a foreign purpose before the
+// launch-specific binder runs. Other calls retain the safe reference behavior.
+type operationBinderAfterReplayProvider struct{ delegate referenceProvider }
+
+func (p *operationBinderAfterReplayProvider) LaunchExecution(ctx context.Context, grant contract4competios.VerifiedOperationGrant, request contract4competios.ExecutionRequest) (contract4competios.ExecutionReceipt, error) {
+	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateExecutionRequest(request) != nil {
+		return contract4competios.ExecutionReceipt{}, contract4competios.ErrInvalidGrant
+	}
+	if prior, exists := p.delegate.launches[request.CommandID]; exists && prior.digest == request.TypedPayloadDigest && grant.Claims.Purpose != contract4competios.GrantPurposeContestLaunch {
+		replay := prior.receipt
+		replay.Status = contract4competios.ReceiptReplayed
+		return replay, nil
+	}
+	return p.delegate.LaunchExecution(ctx, grant, request)
+}
+
 type storedEvent struct {
 	digest contract4competios.PayloadDigest
 }
@@ -263,6 +280,24 @@ type replayBeforeAuthorityEventSink struct{ delegate *referenceEventSink }
 
 func (s *replayBeforeAuthorityEventSink) SubmitExecutionEvent(ctx context.Context, grant contract4competios.VerifiedOperationGrant, event contract4competios.ExecutionEvent) (contract4competios.EventAcknowledgement, error) {
 	if prior, exists := s.delegate.events[event.CommandID]; exists && prior.digest == event.TypedPayloadDigest {
+		return contract4competios.EventAcknowledgement{Status: contract4competios.EventAcknowledgementReplayed}, nil
+	}
+	return s.delegate.SubmitExecutionEvent(ctx, grant, event)
+}
+
+// operationBinderAfterReplayEventSink validates the generic grant shape but
+// deliberately replays a foreign-purpose grant before the event binder.
+type operationBinderAfterReplayEventSink struct{ delegate *referenceEventSink }
+
+func (s *operationBinderAfterReplayEventSink) SubmitExecutionEvent(ctx context.Context, grant contract4competios.VerifiedOperationGrant, event contract4competios.ExecutionEvent) (contract4competios.EventAcknowledgement, error) {
+	if contract4competios.ValidateOperationGrant(grant.Claims) != nil || contract4competios.ValidateExecutionEvent(event) != nil {
+		return contract4competios.EventAcknowledgement{}, contract4competios.ErrInvalidGrant
+	}
+	expectedPurpose := contract4competios.GrantPurposeContestResultSubmit
+	if event.Kind == contract4competios.LifecycleEventStarted {
+		expectedPurpose = contract4competios.GrantPurposeContestStarted
+	}
+	if prior, exists := s.delegate.events[event.CommandID]; exists && prior.digest == event.TypedPayloadDigest && grant.Claims.Purpose != expectedPurpose {
 		return contract4competios.EventAcknowledgement{Status: contract4competios.EventAcknowledgementReplayed}, nil
 	}
 	return s.delegate.SubmitExecutionEvent(ctx, grant, event)
@@ -388,6 +423,12 @@ func TestExecutionProviderConformanceRejectsReplayBeforeAuthorityFake(t *testing
 	}
 }
 
+func TestExecutionProviderConformanceRejectsOperationBinderAfterReplayFake(t *testing.T) {
+	if violations := CheckExecutionProvider(func() contract4competios.ExecutionProvider { return &operationBinderAfterReplayProvider{} }); len(violations) == 0 {
+		t.Fatal("provider that runs the launch binder after replay unexpectedly passed conformance")
+	}
+}
+
 func TestCompositeExecutionJourneysRemainGameNeutral(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -504,6 +545,14 @@ func TestEventSinkConformanceRejectsReplayBeforeAuthorityFake(t *testing.T) {
 		return &replayBeforeAuthorityEventSink{delegate: newReferenceEventSink(request, receipt)}
 	}); len(violations) == 0 {
 		t.Fatal("event sink that replays before authority validation unexpectedly passed conformance")
+	}
+}
+
+func TestEventSinkConformanceRejectsOperationBinderAfterReplayFake(t *testing.T) {
+	if violations := CheckExecutionEventSink(func(request contract4competios.ExecutionRequest, receipt contract4competios.ExecutionReceipt) contract4competios.ExecutionEventSink {
+		return &operationBinderAfterReplayEventSink{delegate: newReferenceEventSink(request, receipt)}
+	}); len(violations) == 0 {
+		t.Fatal("event sink that runs its operation-specific binder after replay unexpectedly passed conformance")
 	}
 }
 

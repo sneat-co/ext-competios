@@ -233,7 +233,33 @@ func checkPopulatedEventReplayAuthority(sink contract4competios.ExecutionEventSi
 			violations = append(violations, fmt.Errorf("populated %s %s valid retry = %+v: %v", label, name, replayed, replayErr))
 		}
 	}
+	for _, probe := range eventBinderReplayProbes(event) {
+		if err := contract4competios.ValidateEventGrantForEvent(probe.grant, eventRouteFixture(event), event); !errors.Is(err, contract4competios.ErrInvalidGrant) {
+			violations = append(violations, fmt.Errorf("populated %s %s operation-specific binder error = %v, want ErrInvalidGrant", label, probe.name, err))
+			continue
+		}
+		ack, submitErr := sink.SubmitExecutionEvent(ctx, probe.grant, event)
+		if !errors.Is(submitErr, contract4competios.ErrInvalidGrant) || ack != (contract4competios.EventAcknowledgement{}) {
+			violations = append(violations, fmt.Errorf("populated %s %s binder probe = %+v: %v, want empty acknowledgement and ErrInvalidGrant", label, probe.name, ack, submitErr))
+		}
+		replayed, replayErr := sink.SubmitExecutionEvent(ctx, eventGrantFixture(event, label+"-binder-retry-"+probe.name, "key-rotated"), event)
+		if replayErr != nil || replayed.Status != contract4competios.EventAcknowledgementReplayed {
+			violations = append(violations, fmt.Errorf("populated %s %s valid retry = %+v: %v", label, probe.name, replayed, replayErr))
+		}
+	}
 	return violations
+}
+
+func eventBinderReplayProbes(event contract4competios.ExecutionEvent) []crossPurposeReplayProbe {
+	var foreignEvent contract4competios.ExecutionEvent
+	if event.Kind == contract4competios.LifecycleEventStarted {
+		foreignEvent = resultFixture(event.ProviderInstanceID)
+	} else {
+		foreignEvent = startFixture(event.ProviderInstanceID)
+	}
+	target := eventGrantFixture(event, "event-binder-target", "key-a").Claims
+	foreign := eventGrantFixture(foreignEvent, "event-binder-foreign", "key-a").Claims
+	return crossPurposeReplayProbes(target, foreign)
 }
 
 func startEventPayloadMutations() map[string]func(*contract4competios.ExecutionEventPayload) {
