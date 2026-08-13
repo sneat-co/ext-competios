@@ -1,10 +1,11 @@
 ---
 format: https://specscore.md/plan-specification
-status: Approved
+status: Implemented
 ---
 # Plan: Automated execution contract
 
-**Status:** Executing
+**Status:** Implemented
+**Reconciled:** 2026-08-13
 **Source Feature:** automated-execution-contract
 **Date:** 2026-08-11
 **Owner:** alex
@@ -153,7 +154,7 @@ material and game-specific field names in the public execution types.
 **Id:** task-6
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:event-grant-and-command-replay-are-distinct
 **Depends-On:** 4, 5
-**Status:** planning
+**Status:** complete
 
 Coordinate exact prerelease consumers in Competios and Chess Raiders, update
 their released contract imports and run their real conformance/e2e paths.
@@ -168,7 +169,7 @@ satisfy an incomplete cutover.
 **Id:** task-7
 **Verifies:** automated-execution-contract#ac:full-consumer-cutover, automated-execution-contract#ac:module-remains-portable
 **Depends-On:** 6
-**Status:** planning
+**Status:** complete
 
 Land and tag the public Go module first, bump each consumer to the exact release,
 run full contract/Competios/Chess verification and observe post-merge CI. Prove
@@ -181,4 +182,12 @@ No plan-local questions. Contract and token choices remain in the source Feature
 and the owning Competios/Chess Raiders Features.
 
 ---
+
+## Resolution
+
+**Reconciled Executing → Implemented outside the tracked `change-status` flow** (2 task(s) marked complete; this did not walk the legal-transition matrix).
+
+Tasks 6-7 executed outside the tracked flow in the 2026-08-12 cutover session: every consumer cut to backend/v0.2.0 (competios#13 eac7dab26, chessraiders#73 aae6ac5de, sneat-go#976 418f0460e), grants module published provider-first as grants/v0.1.0 (ext-competios#6 ccc1bafa7) with consumers bumped (sneat-go#979/#980), no local contract copies or superseded scheduled-lineup wire remain (fleet-grepped 2026-08-13), post-merge CI observed green in dependency order, all WB branches/worktrees terminally cleaned.
+
+Evidence: eac7dab26, aae6ac5de, 418f0460e, ccc1bafa7
 *This document follows the https://specscore.md/plan-specification*
