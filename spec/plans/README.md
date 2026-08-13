@@ -10,7 +10,7 @@ Canonical index of all plans in this repository. Each plan is a single Markdown 
 
 | Plan | Status | Source | Date | Owner |
 |---|---|---|---|---|
-| [automated-execution-contract](automated-execution-contract.md) | Executing | automated-execution-contract | 2026-08-11 | alex |
+| [automated-execution-contract](automated-execution-contract.md) | Implemented | automated-execution-contract | 2026-08-11 | alex |
 
 ## Recently Closed
 
