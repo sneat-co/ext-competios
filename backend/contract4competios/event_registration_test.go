@@ -70,3 +70,76 @@ func TestBookOnlineConfirmationBindsRevisionAndFreeOrSettlementEvidence(t *testi
 		t.Fatalf("missing settlement error = %v", err)
 	}
 }
+
+func TestBookOnlineCancellationUsesCurrentLockAndTrustedRefundDecision(t *testing.T) {
+	identity := TournamentIdentity{EventID: "event-1", TournamentID: "tournament-1", CompetitionID: "competition-1"}
+	request := BookOnlineEntryCancellationRequest{
+		RequestID: "cancel-1", BookingReference: "bookius:booking-1", TargetVersion: 2, BookingRevision: 4,
+		Tournament: identity, EntryID: "entry-1", Origin: BookOnlineCancellationParticipant,
+		ActorAccountID: "player-1", AuthorityEvidence: "session-proof-1", Reason: "cannot attend",
+	}
+	if err := ValidateBookOnlineEntryCancellationRequest(request); err != nil {
+		t.Fatalf("valid cancellation request: %v", err)
+	}
+	validation := BookOnlineEntryCancellationValidation{
+		RequestID: request.RequestID, BookingReference: request.BookingReference, TargetVersion: request.TargetVersion,
+		BookingRevision: request.BookingRevision, Tournament: identity, EntryID: request.EntryID, Origin: request.Origin,
+		Authorized: true, RefundAuthorized: true, CurrentTournamentVersion: 9,
+		AuthorityEvidence: "competios-proof-1", ValidatedAt: time.Now().UTC(),
+	}
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); err != nil {
+		t.Fatalf("unlocked participant refund: %v", err)
+	}
+	if err := ValidateBookOnlineEntryCancellationBinding(request, validation); err != nil {
+		t.Fatalf("exact cancellation binding: %v", err)
+	}
+	mismatched := validation
+	mismatched.BookingRevision++
+	if err := ValidateBookOnlineEntryCancellationBinding(request, mismatched); !errors.Is(err, ErrInvalidEventRegistration) {
+		t.Fatalf("mismatched booking revision = %v", err)
+	}
+
+	validation.RegistrationLocked = true
+	validation.RefundAuthorized = false
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); err != nil {
+		t.Fatalf("locked participant non-refund cancellation: %v", err)
+	}
+	validation.RefundAuthorized = true
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); !errors.Is(err, ErrInvalidEventRegistration) {
+		t.Fatalf("locked participant refund without organiser = %v", err)
+	}
+	validation.AuthoriserAccountID = "organiser-1"
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); err != nil {
+		t.Fatalf("locked participant override: %v", err)
+	}
+
+	validation.Origin = BookOnlineCancellationOrganiser
+	validation.AuthoriserAccountID = ""
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); err != nil {
+		t.Fatalf("organiser cancellation: %v", err)
+	}
+	validation.RefundAuthorized = false
+	if err := ValidateBookOnlineEntryCancellationValidation(validation); !errors.Is(err, ErrInvalidEventRegistration) {
+		t.Fatalf("organiser cancellation without refund = %v", err)
+	}
+}
+
+func TestBookOnlineCancellationRejectsUntrustedOrStaleEvidence(t *testing.T) {
+	request := BookOnlineEntryCancellationRequest{
+		RequestID: "cancel-1", BookingReference: "bookius:booking-1", TargetVersion: 2, BookingRevision: 4,
+		Tournament: TournamentIdentity{EventID: "event-1", TournamentID: "tournament-1", CompetitionID: "competition-1"},
+		EntryID:    "entry-1", Origin: BookOnlineCancellationParticipant, ActorAccountID: "player-1",
+		AuthorityEvidence: "session-proof-1", Reason: "cannot attend",
+	}
+	for name, mutate := range map[string]func(*BookOnlineEntryCancellationRequest){
+		"missing booking revision": func(value *BookOnlineEntryCancellationRequest) { value.BookingRevision = 0 },
+		"missing authority":        func(value *BookOnlineEntryCancellationRequest) { value.AuthorityEvidence = "" },
+		"unknown origin":           func(value *BookOnlineEntryCancellationRequest) { value.Origin = "browser-choice" },
+	} {
+		value := request
+		mutate(&value)
+		if err := ValidateBookOnlineEntryCancellationRequest(value); !errors.Is(err, ErrInvalidEventRegistration) {
+			t.Errorf("%s error = %v, want ErrInvalidEventRegistration", name, err)
+		}
+	}
+}
