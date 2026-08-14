@@ -6,6 +6,7 @@ type ParticipantKind string
 
 const (
 	ParticipantIndividual ParticipantKind = "individual"
+	ParticipantPair       ParticipantKind = "pair"
 	ParticipantTeam       ParticipantKind = "team-space"
 )
 

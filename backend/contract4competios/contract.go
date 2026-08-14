@@ -36,7 +36,11 @@ type ProviderInstanceID string
 type ParticipantVersionID string
 type ArtifactDigest string
 type PayloadDigest string
-type EventID string
+
+// ExecutionEventID identifies a provider-execution lifecycle event. It is
+// intentionally distinct from EventID, which identifies a public Competios
+// Event that can contain multiple Tournaments.
+type ExecutionEventID string
 type ReplayReference string
 type SafeReference string
 type FailureCode string
@@ -354,7 +358,7 @@ type ExecutionFailure struct {
 // ExecutionEventPayload is the complete event digest input. Completed carries
 // Result; failed/cancelled carry Failure; started carries neither.
 type ExecutionEventPayload struct {
-	ID                 EventID            `json:"id"`
+	ID                 ExecutionEventID   `json:"id"`
 	Kind               LifecycleEventKind `json:"kind"`
 	CompetitionID      CompetitionID      `json:"competitionID"`
 	ContestID          ContestID          `json:"contestID"`
@@ -369,7 +373,7 @@ type ExecutionEventPayload struct {
 }
 
 type ExecutionEvent struct {
-	ID                 EventID            `json:"id"`
+	ID                 ExecutionEventID   `json:"id"`
 	Kind               LifecycleEventKind `json:"kind"`
 	CompetitionID      CompetitionID      `json:"competitionID"`
 	ContestID          ContestID          `json:"contestID"`
