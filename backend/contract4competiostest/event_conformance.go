@@ -165,7 +165,7 @@ func CheckExecutionEventSinkWithEvents(factory ExecutionEventSinkFactory, reques
 			continue
 		}
 		payload := copyEventPayload(result)
-		payload.ID, payload.CommandID = contract4competios.EventID("bound-"+name), contract4competios.CommandID("bound-command-"+name)
+		payload.ID, payload.CommandID = contract4competios.ExecutionEventID("bound-"+name), contract4competios.CommandID("bound-command-"+name)
 		mutate(&payload)
 		changed, buildErr := contract4competios.NewExecutionEvent(payload)
 		if buildErr != nil {

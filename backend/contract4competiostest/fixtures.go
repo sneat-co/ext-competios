@@ -205,7 +205,7 @@ func resultFixtureForRequest(request contract4competios.ExecutionRequest, instan
 
 func failureFixture(instance contract4competios.ProviderInstanceID, kind contract4competios.LifecycleEventKind, command string) contract4competios.ExecutionEvent {
 	event, err := contract4competios.NewExecutionEvent(contract4competios.ExecutionEventPayload{
-		ID: contract4competios.EventID(command + "-event"), Kind: kind,
+		ID: contract4competios.ExecutionEventID(command + "-event"), Kind: kind,
 		CompetitionID: "cup", ContestID: "contest", RequestID: "request",
 		ProviderID: "provider", AdapterID: "adapter", ProviderInstanceID: instance,
 		CommandID: contract4competios.CommandID(command), OccurredAt: fixtureTime.Add(90 * time.Second),
