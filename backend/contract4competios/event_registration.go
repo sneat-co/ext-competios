@@ -156,6 +156,108 @@ type BookOnlineEntryValidator interface {
 	ValidateBookOnlineEntry(context.Context, BookOnlineEntryValidationRequest) (BookOnlineEntryValidation, error)
 }
 
+// BookOnlineCancellationOrigin records whose lifecycle action is being
+// authorised. It is not a refund decision: Competios derives that decision
+// from the current registration lock and organiser authority.
+type BookOnlineCancellationOrigin string
+
+const (
+	BookOnlineCancellationParticipant BookOnlineCancellationOrigin = "participant"
+	BookOnlineCancellationOrganiser   BookOnlineCancellationOrigin = "organiser"
+)
+
+// BookOnlineEntryCancellationRequest is the server-to-server cancellation
+// proposal Bookius sends to Competios. Target and booking revisions come from
+// the persisted booking; actor evidence is minted by the authenticated delivery
+// adapter. A browser cannot supply trusted lock or refund fields.
+type BookOnlineEntryCancellationRequest struct {
+	RequestID         CommandID                    `json:"requestID"`
+	BookingReference  BookingReference             `json:"bookingReference"`
+	TargetVersion     BookOnlineTargetVersion      `json:"targetVersion"`
+	BookingRevision   BookOnlineBookingRevision    `json:"bookingRevision"`
+	Tournament        TournamentIdentity           `json:"tournament"`
+	EntryID           EntryID                      `json:"entryID"`
+	Origin            BookOnlineCancellationOrigin `json:"origin"`
+	ActorAccountID    AccountID                    `json:"actorAccountID"`
+	AuthorityEvidence string                       `json:"authorityEvidence"`
+	Reason            string                       `json:"reason"`
+}
+
+// BookOnlineEntryCancellationValidation is the current Competios decision.
+// A locked participant may still cancel; RefundAuthorized is normally false.
+// A trusted organiser authoriser may grant a reasoned exception. An organiser-
+// origin cancellation is always refund-authorised.
+type BookOnlineEntryCancellationValidation struct {
+	RequestID                CommandID                    `json:"requestID"`
+	BookingReference         BookingReference             `json:"bookingReference"`
+	TargetVersion            BookOnlineTargetVersion      `json:"targetVersion"`
+	BookingRevision          BookOnlineBookingRevision    `json:"bookingRevision"`
+	Tournament               TournamentIdentity           `json:"tournament"`
+	EntryID                  EntryID                      `json:"entryID"`
+	Origin                   BookOnlineCancellationOrigin `json:"origin"`
+	Authorized               bool                         `json:"authorized"`
+	RefundAuthorized         bool                         `json:"refundAuthorized"`
+	CurrentTournamentVersion uint64                       `json:"currentTournamentVersion"`
+	RegistrationLocked       bool                         `json:"registrationLocked"`
+	AuthoriserAccountID      AccountID                    `json:"authoriserAccountID,omitempty"`
+	AuthorityEvidence        string                       `json:"authorityEvidence"`
+	ValidatedAt              time.Time                    `json:"validatedAt"`
+}
+
+func ValidateBookOnlineEntryCancellationRequest(value BookOnlineEntryCancellationRequest) error {
+	if value.RequestID == "" || value.BookingReference == "" || value.TargetVersion == 0 || value.BookingRevision == 0 ||
+		ValidateTournamentIdentity(value.Tournament) != nil || value.EntryID == "" || value.ActorAccountID == "" ||
+		strings.TrimSpace(value.AuthorityEvidence) == "" || strings.TrimSpace(value.Reason) == "" || !validBookOnlineCancellationOrigin(value.Origin) {
+		return ErrInvalidEventRegistration
+	}
+	return nil
+}
+
+func ValidateBookOnlineEntryCancellationValidation(value BookOnlineEntryCancellationValidation) error {
+	if value.RequestID == "" || value.BookingReference == "" || value.TargetVersion == 0 || value.BookingRevision == 0 ||
+		ValidateTournamentIdentity(value.Tournament) != nil || value.EntryID == "" || !validBookOnlineCancellationOrigin(value.Origin) ||
+		!value.Authorized || value.CurrentTournamentVersion == 0 || strings.TrimSpace(value.AuthorityEvidence) == "" || value.ValidatedAt.IsZero() {
+		return ErrInvalidEventRegistration
+	}
+	switch value.Origin {
+	case BookOnlineCancellationOrganiser:
+		if !value.RefundAuthorized {
+			return ErrInvalidEventRegistration
+		}
+	case BookOnlineCancellationParticipant:
+		if !value.RegistrationLocked && !value.RefundAuthorized {
+			return ErrInvalidEventRegistration
+		}
+		if value.RegistrationLocked && value.RefundAuthorized && value.AuthoriserAccountID == "" {
+			return ErrInvalidEventRegistration
+		}
+	}
+	return nil
+}
+
+// ValidateBookOnlineEntryCancellationBinding proves the trusted validation is
+// for the exact persisted booking proposal. Consumers call it before applying
+// cancellation or refund policy; a valid but unrelated decision fails closed.
+func ValidateBookOnlineEntryCancellationBinding(request BookOnlineEntryCancellationRequest, validation BookOnlineEntryCancellationValidation) error {
+	if ValidateBookOnlineEntryCancellationRequest(request) != nil || ValidateBookOnlineEntryCancellationValidation(validation) != nil ||
+		request.RequestID != validation.RequestID || request.BookingReference != validation.BookingReference ||
+		request.TargetVersion != validation.TargetVersion || request.BookingRevision != validation.BookingRevision ||
+		request.Tournament != validation.Tournament || request.EntryID != validation.EntryID || request.Origin != validation.Origin {
+		return ErrInvalidEventRegistration
+	}
+	return nil
+}
+
+func validBookOnlineCancellationOrigin(value BookOnlineCancellationOrigin) bool {
+	return value == BookOnlineCancellationParticipant || value == BookOnlineCancellationOrganiser
+}
+
+// BookOnlineEntryCancellationValidator is implemented by Competios and called
+// by Bookius at cancellation time, so stale lock state never decides refunds.
+type BookOnlineEntryCancellationValidator interface {
+	ValidateBookOnlineEntryCancellation(context.Context, BookOnlineEntryCancellationRequest) (BookOnlineEntryCancellationValidation, error)
+}
+
 type ParticipationPaymentState string
 
 const (
