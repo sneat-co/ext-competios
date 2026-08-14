@@ -29,17 +29,44 @@ func TestTournamentParticipationPriceIsExplicitAndClosed(t *testing.T) {
 	}
 }
 
-func TestPaidConfirmationBindsServerAuthoredPriceAndIdentity(t *testing.T) {
-	confirmed := PaidParticipationConfirmation{
-		AttemptID: "attempt-1", BookingReference: "bookius:booking-1",
-		Tournament: TournamentIdentity{EventID: "event-1", TournamentID: "tournament-1", CompetitionID: "competition-1"},
-		Price:      validParticipationPrice(), SettledAt: time.Now().UTC(),
+func TestBookOnlineValidationBindsAdmissionPayerCapacityAndOffer(t *testing.T) {
+	identity := TournamentIdentity{EventID: "event-1", TournamentID: "tournament-1", CompetitionID: "competition-1"}
+	request := BookOnlineEntryValidationRequest{RequestID: "request-1", Tournament: identity, ProposedEntryID: "entry-1", ParticipantKind: ParticipantTeam, ParticipantID: "team-1", ApplicantAccountID: "captain-1"}
+	if err := ValidateBookOnlineEntryValidationRequest(request); err != nil {
+		t.Fatalf("valid request: %v", err)
 	}
-	if err := ValidatePaidParticipationConfirmation(confirmed); err != nil {
-		t.Fatalf("valid confirmation: %v", err)
+	validation := BookOnlineEntryValidation{
+		RequestID: "request-1", Tournament: identity, TournamentVersion: 3, TargetVersion: 2,
+		ProposedEntryID: "entry-1", ParticipantKind: ParticipantTeam, ParticipantID: "team-1",
+		EnrolmentPolicy: EnrolmentApprovalRequired, Capacity: 16, FulfilmentMode: RegistrationFulfilmentBookOnline,
+		Price: validParticipationPrice(), Payer: EntryPayerAuthority{AccountID: "captain-1", Role: EntryPayerCaptain},
 	}
-	confirmed.Price.Currency = "usd"
-	if err := ValidatePaidParticipationConfirmation(confirmed); !errors.Is(err, ErrInvalidEventRegistration) {
-		t.Fatalf("untrusted currency mutation error = %v", err)
+	if err := ValidateBookOnlineEntryValidation(validation); err != nil {
+		t.Fatalf("valid validation: %v", err)
+	}
+	validation.Payer.Role = EntryPayerApplicant
+	if err := ValidateBookOnlineEntryValidation(validation); !errors.Is(err, ErrInvalidEventRegistration) {
+		t.Fatalf("team applicant payer error = %v", err)
+	}
+}
+
+func TestBookOnlineConfirmationBindsRevisionAndFreeOrSettlementEvidence(t *testing.T) {
+	confirmed := BookOnlineEntryConfirmation{
+		AttemptID: "attempt-1", BookingReference: "bookius:booking-1", TargetVersion: 2, BookingRevision: 4,
+		Tournament:      TournamentIdentity{EventID: "event-1", TournamentID: "tournament-1", CompetitionID: "competition-1"},
+		ProposedEntryID: "entry-1", ParticipantKind: ParticipantTeam, Payer: EntryPayerAuthority{AccountID: "captain-1", Role: EntryPayerCaptain},
+		Price: validParticipationPrice(), Evidence: ParticipationConfirmationEvidence{Kind: ParticipationConfirmationFree}, ConfirmedAt: time.Now().UTC(),
+	}
+	if err := ValidateBookOnlineEntryConfirmation(confirmed); err != nil {
+		t.Fatalf("valid free confirmation: %v", err)
+	}
+	confirmed.Price.AmountMinor = 2500
+	confirmed.Evidence = ParticipationConfirmationEvidence{Kind: ParticipationConfirmationSettled, Reference: "stripe:checkout-1"}
+	if err := ValidateBookOnlineEntryConfirmation(confirmed); err != nil {
+		t.Fatalf("valid settled confirmation: %v", err)
+	}
+	confirmed.Evidence.Reference = ""
+	if err := ValidateBookOnlineEntryConfirmation(confirmed); !errors.Is(err, ErrInvalidEventRegistration) {
+		t.Fatalf("missing settlement error = %v", err)
 	}
 }
