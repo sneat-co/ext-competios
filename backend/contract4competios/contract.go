@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ExtensionID is Competios' stable global extension namespace.
@@ -79,12 +80,20 @@ type ProviderExecutedProfile struct {
 	Deadline      time.Time             `json:"deadline,omitempty"`
 }
 
+// MaxParticipantScheduledSlotDisplayNameBytes bounds the viewer-safe frozen
+// label an execution provider may render. It is deliberately a byte limit so
+// transport and storage implementations can enforce it without normalising
+// user text. The name remains optional for existing scheduled providers.
+const MaxParticipantScheduledSlotDisplayNameBytes = 256
+
 // ParticipantScheduledSlot represents a frozen human/team lineup without
-// reintroducing user IDs or game-specific side vocabulary.
+// reintroducing user IDs or game-specific side vocabulary. DisplayName is
+// presentation only: EntryID and Ordinal remain the immutable result binding.
 type ParticipantScheduledSlot struct {
 	Ordinal      uint16          `json:"ordinal"`
 	EntryID      EntryID         `json:"entryID"`
 	Participants []ParticipantID `json:"participants"`
+	DisplayName  string          `json:"displayName,omitempty"`
 }
 
 type ParticipantScheduledProfile struct {
@@ -324,7 +333,14 @@ type RecordedProvenance struct {
 	ExecutionPayloadDigest      PayloadDigest    `json:"executionPayloadDigest"`
 }
 
-type ParticipantScheduledCompletionEvidence struct{}
+// ParticipantScheduledCompletionEvidence contains provider-owned, immutable
+// terminal facts that a human-scored provider actually has. Both digests are
+// optional so established participant-scheduled providers retain their
+// existing wire shape; when present, they are bound by the event digest.
+type ParticipantScheduledCompletionEvidence struct {
+	TerminalStateDigest ArtifactDigest `json:"terminalStateDigest,omitempty"`
+	EventLogDigest      ArtifactDigest `json:"eventLogDigest,omitempty"`
+}
 
 type CompletionEvidence struct {
 	ProfileKind          ExecutionProfileKind                    `json:"profileKind"`
@@ -496,6 +512,9 @@ func validateExecutionProfile(profile ExecutionProfile) error {
 				return ErrInvalidExecution
 			}
 			seenEntry[slot.EntryID] = true
+			if len(slot.DisplayName) > MaxParticipantScheduledSlotDisplayNameBytes || !utf8.ValidString(slot.DisplayName) {
+				return ErrInvalidExecution
+			}
 			for _, participant := range slot.Participants {
 				if participant == "" || seenParticipant[participant] {
 					return ErrInvalidExecution
@@ -624,7 +643,9 @@ func validateCompletionEvidence(value CompletionEvidence, placementCount int) er
 			}
 		}
 	case ExecutionProfileParticipantScheduled:
-		if value.ProviderExecuted != nil || value.ParticipantScheduled == nil {
+		if value.ProviderExecuted != nil || value.ParticipantScheduled == nil ||
+			value.ParticipantScheduled.TerminalStateDigest != "" && !validSHA256Digest(string(value.ParticipantScheduled.TerminalStateDigest)) ||
+			value.ParticipantScheduled.EventLogDigest != "" && !validSHA256Digest(string(value.ParticipantScheduled.EventLogDigest)) {
 			return ErrInvalidExecution
 		}
 	default:
