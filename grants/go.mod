@@ -1,9 +1,11 @@
 module github.com/sneat-co/ext-competios/grants
 
-go 1.27.0
+go 1.26.0
+
+toolchain go1.27.0
 
 require (
-	github.com/dal-go/dalgo v0.74.0
+	github.com/dal-go/dalgo v0.74.1
 	github.com/dal-go/record v0.1.3
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/sneat-co/ext-competios/backend v0.2.0
